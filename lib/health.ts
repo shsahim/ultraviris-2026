@@ -1,5 +1,6 @@
 import "server-only";
 import { access, constants } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import {
   GetSendQuotaCommand,
@@ -36,6 +37,22 @@ export interface StorageHealth {
   message: string;
 }
 
+export interface BrokenImage {
+  table: string;
+  id: string;
+  path: string;
+}
+
+export interface ImageHealth {
+  mode: "s3" | "local";
+  checked: number;
+  ok: number;
+  broken: number;
+  brokenList: BrokenImage[];
+  skipped: boolean;
+  message: string;
+}
+
 export interface SiteHealth {
   ok: boolean;
   error: string | null;
@@ -43,7 +60,28 @@ export interface SiteHealth {
   tables: TableCount[];
   email: EmailHealth;
   storage: StorageHealth;
+  images: ImageHealth;
   checkedAt: string;
+}
+
+const PUBLIC_DIR = path.join(process.cwd(), "public");
+const IMAGE_EXT_FALLBACKS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
+const MAX_BROKEN_LISTED = 50;
+
+// Mirrors lib/data.ts resolveImage: true if the file exists locally, allowing
+// a sibling with the same basename but a different image extension.
+function localImageExists(fileLocation: string): boolean {
+  const relative = fileLocation.replace(/^\.?\/+/, "").trim();
+  if (!relative) return false;
+  if (existsSync(path.join(PUBLIC_DIR, relative))) return true;
+
+  const ext = path.extname(relative);
+  const base = relative.slice(0, relative.length - ext.length);
+  return IMAGE_EXT_FALLBACKS.some(
+    (alt) =>
+      alt !== ext.toLowerCase() &&
+      existsSync(path.join(PUBLIC_DIR, base + alt))
+  );
 }
 
 // Caps a slow external call so the health page never hangs on it.
@@ -235,16 +273,108 @@ async function checkStorageHealth(): Promise<StorageHealth> {
   }
 }
 
+async function checkImageHealth(): Promise<ImageHealth> {
+  const mode: "s3" | "local" = isS3Enabled() ? "s3" : "local";
+
+  // Per-image verification only runs against the local public/ directory.
+  if (mode === "s3") {
+    return {
+      mode,
+      checked: 0,
+      ok: 0,
+      broken: 0,
+      brokenList: [],
+      skipped: true,
+      message: "Images are served from S3; per-image verification runs in local mode.",
+    };
+  }
+
+  try {
+    // Find which image-bearing tables have File_Location / is_active columns.
+    const colRows = await query<{ table: string; col: string }>(
+      `SELECT TABLE_NAME AS \`table\`, COLUMN_NAME AS col
+       FROM information_schema.columns
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND COLUMN_NAME IN ('File_Location', 'is_active')`
+    );
+    const hasFile = new Set<string>();
+    const hasActive = new Set<string>();
+    for (const r of colRows) {
+      if (r.col === "File_Location") hasFile.add(r.table);
+      if (r.col === "is_active") hasActive.add(r.table);
+    }
+
+    let checked = 0;
+    let ok = 0;
+    const brokenList: BrokenImage[] = [];
+
+    for (const table of hasFile) {
+      const escTable = escapeId(table);
+      const where = hasActive.has(table) ? "WHERE is_active = 1" : "";
+      let rows: Array<{ id: unknown; File_Location: unknown }>;
+      try {
+        rows = await query<{ id: unknown; File_Location: unknown }>(
+          `SELECT id, File_Location FROM ${escTable} ${where}`
+        );
+      } catch {
+        // Table lacks an `id` column or is otherwise odd — skip it.
+        continue;
+      }
+
+      for (const row of rows) {
+        checked++;
+        const file = String(row.File_Location ?? "").trim();
+        if (file && localImageExists(file)) {
+          ok++;
+        } else if (brokenList.length < MAX_BROKEN_LISTED) {
+          brokenList.push({
+            table,
+            id: String(row.id ?? "?"),
+            path: file || "(empty)",
+          });
+        }
+      }
+    }
+
+    const broken = checked - ok;
+    return {
+      mode,
+      checked,
+      ok,
+      broken,
+      brokenList,
+      skipped: false,
+      message:
+        broken === 0
+          ? `All ${checked} active images load correctly.`
+          : `${broken} of ${checked} active images are missing or broken.`,
+    };
+  } catch (error) {
+    return {
+      mode,
+      checked: 0,
+      ok: 0,
+      broken: 0,
+      brokenList: [],
+      skipped: false,
+      message:
+        error instanceof Error ? error.message : "Could not verify images.",
+    };
+  }
+}
+
 // SES/S3 results are cached for a short window; the DB check stays live.
 const getEmailHealth = cached(EXTERNAL_CHECK_TTL_MS, checkEmailHealth);
 const getStorageHealth = cached(EXTERNAL_CHECK_TTL_MS, checkStorageHealth);
+const getImageHealth = cached(EXTERNAL_CHECK_TTL_MS, checkImageHealth);
 
 export async function getSiteHealth(): Promise<SiteHealth> {
   const checkedAt = new Date().toISOString();
-  const [db, email, storage] = await Promise.all([
+  const [db, email, storage, images] = await Promise.all([
     getDbHealth(),
     getEmailHealth(),
     getStorageHealth(),
+    getImageHealth(),
   ]);
 
   return {
@@ -254,6 +384,7 @@ export async function getSiteHealth(): Promise<SiteHealth> {
     tables: db.tables,
     email,
     storage,
+    images,
     checkedAt,
   };
 }

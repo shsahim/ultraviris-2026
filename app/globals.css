@@ -575,6 +575,28 @@ b {
   font-size: 0.8rem;
 }
 
+.admin-broken-images {
+  margin-top: 1rem;
+  border: 1px solid #e6c2c2;
+  background: #fcf4f4;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+}
+
+.admin-broken-images summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #8a0b0b;
+}
+
+.admin-broken-table {
+  margin-top: 0.75rem;
+}
+
+.admin-broken-table td {
+  word-break: break-all;
+}
+
 .admin-field {
   display: flex;
   flex-direction: column;

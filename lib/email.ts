@@ -49,3 +49,38 @@ export async function sendContactEmail({
 
   await ses.send(command);
 }
+
+export interface AlertEmail {
+  subject: string;
+  body: string;
+}
+
+/**
+ * Sends an operational alert to the ALERT_EMAIL recipient (falls back to
+ * CONTACT_TO_EMAIL). Used by the health-check monitor.
+ */
+export async function sendAlertEmail({ subject, body }: AlertEmail): Promise<void> {
+  const source = process.env.SES_FROM_EMAIL;
+  const destination =
+    process.env.ALERT_EMAIL ?? process.env.CONTACT_TO_EMAIL ?? null;
+
+  if (!source) {
+    throw new Error("SES_FROM_EMAIL is not configured");
+  }
+  if (!destination) {
+    throw new Error("ALERT_EMAIL (or CONTACT_TO_EMAIL) is not configured");
+  }
+
+  const command = new SendEmailCommand({
+    Source: source,
+    Destination: { ToAddresses: [destination] },
+    Message: {
+      Subject: { Data: subject, Charset: "UTF-8" },
+      Body: {
+        Text: { Data: body, Charset: "UTF-8" },
+      },
+    },
+  });
+
+  await ses.send(command);
+}

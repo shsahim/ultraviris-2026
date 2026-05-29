@@ -1,0 +1,17 @@
+node_modules
+.next
+npm-debug.log*
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+README.md
+Makefile
+.github
+coverage
+*.pem
+public/images
+.DS_Store
+**/.DS_Store
+terraform

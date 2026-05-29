@@ -1,8 +1,41 @@
 import "server-only";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { query } from "@/lib/db";
 import { assertValidTable, escapeId } from "@/lib/admin-db";
 import { resolveImageSrc } from "@/lib/images";
 import { cached } from "@/lib/cache";
+
+const PUBLIC_DIR = path.join(process.cwd(), "public");
+const EXT_FALLBACKS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
+
+// Resolves a stored File_Location to a browser src, and—when serving local
+// files—tolerates extension mismatches (e.g. the DB says ".png" but the file
+// on disk is ".jpg") by falling back to a sibling with the same basename.
+function resolveImage(fileLocation: string): string {
+  const src = resolveImageSrc(fileLocation);
+
+  // Remote/S3 mode or absolute URLs: trust the value as-is.
+  if (process.env.IMAGE_BASE_URL || /^https?:\/\//i.test(src)) {
+    return src;
+  }
+
+  const relative = src.replace(/^\/+/, "");
+  if (!relative || existsSync(path.join(PUBLIC_DIR, relative))) {
+    return src;
+  }
+
+  const ext = path.extname(relative);
+  const base = relative.slice(0, relative.length - ext.length);
+  for (const alt of EXT_FALLBACKS) {
+    if (alt === ext.toLowerCase()) continue;
+    if (existsSync(path.join(PUBLIC_DIR, base + alt))) {
+      return `/${base}${alt}`;
+    }
+  }
+
+  return src;
+}
 
 export interface Project {
   id: number;
@@ -62,7 +95,7 @@ export function getGalleryImages(tableName: string): Promise<GalleryImage[]> {
         return {
           id: Number(r.id),
           title: (r.Title as string) ?? "",
-          src: resolveImageSrc(file),
+          src: resolveImage(file),
           description: (r.image_Description as string) ?? "",
           width: r.width != null ? Number(r.width) : null,
           height: r.height != null ? Number(r.height) : null,
@@ -97,7 +130,7 @@ export function getHomeImages(): Promise<HomeImage[]> {
       );
       return rows.map((r) => ({
         id: r.id,
-        src: resolveImageSrc(r.File_Location),
+        src: resolveImage(r.File_Location),
       }));
     } catch {
       return [];

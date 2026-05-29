@@ -173,7 +173,68 @@ export default async function AdminPage({
             <strong>{health.storage.mode === "s3" ? "Amazon S3" : "Local"}</strong>
             <span className="admin-muted">{health.storage.message}</span>
           </div>
+
+          <div className="admin-health-card">
+            <div className="admin-health-card-head">
+              <span
+                className={`admin-status-dot ${
+                  health.images.skipped
+                    ? "admin-status-dot--warn"
+                    : health.images.broken === 0
+                    ? "admin-status-dot--ok"
+                    : "admin-status-dot--bad"
+                }`}
+                aria-hidden
+              />
+              <span className="admin-health-card-title">Images</span>
+            </div>
+            <strong>
+              {health.images.skipped
+                ? "Not verified"
+                : health.images.broken === 0
+                ? "All loading"
+                : `${health.images.broken} broken`}
+            </strong>
+            <span className="admin-muted">{health.images.message}</span>
+            {!health.images.skipped && health.images.checked > 0 && (
+              <span className="admin-muted">
+                {health.images.ok} / {health.images.checked} OK
+              </span>
+            )}
+          </div>
         </div>
+
+        {health.images.brokenList.length > 0 && (
+          <details className="admin-broken-images">
+            <summary>
+              Show broken images ({health.images.broken})
+            </summary>
+            <table className="admin-table admin-broken-table">
+              <thead>
+                <tr>
+                  <th>Table</th>
+                  <th>ID</th>
+                  <th>File_Location</th>
+                </tr>
+              </thead>
+              <tbody>
+                {health.images.brokenList.map((b) => (
+                  <tr key={`${b.table}-${b.id}`}>
+                    <td>{b.table}</td>
+                    <td>{b.id}</td>
+                    <td>{b.path}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {health.images.broken > health.images.brokenList.length && (
+              <p className="admin-muted">
+                Showing first {health.images.brokenList.length} of{" "}
+                {health.images.broken}.
+              </p>
+            )}
+          </details>
+        )}
 
         {health.ok && (
           <>
