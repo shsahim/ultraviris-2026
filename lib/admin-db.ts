@@ -22,7 +22,8 @@ const TABLE_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,62}$/;
 
 export async function createTableLike(
   newTable: string,
-  sourceTable = "brain_juice"
+  sourceTable = "brain_juice",
+  options: { ifNotExists?: boolean } = {}
 ): Promise<void> {
   if (!TABLE_NAME_RE.test(newTable)) {
     throw new Error(
@@ -33,11 +34,60 @@ export async function createTableLike(
 
   const tables = await listTables();
   if (tables.includes(newTable)) {
+    if (options.ifNotExists) {
+      return;
+    }
     throw new Error(`A table named "${newTable}" already exists.`);
   }
 
   await query(
     `CREATE TABLE ${escapeId(newTable)} LIKE ${escapeId(sourceTable)}`
+  );
+}
+
+// Turns an arbitrary project name into a valid MySQL table identifier.
+export function slugifyTableName(name: string): string {
+  let slug = name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!slug) {
+    slug = "project";
+  }
+  if (/^[0-9]/.test(slug)) {
+    slug = `t_${slug}`;
+  }
+  return slug.slice(0, 63);
+}
+
+// Turns a table identifier into a friendly, title-cased display name.
+// e.g. "brain_juice" -> "Brain Juice", "sculptures_and_installations" ->
+// "Sculptures And Installations".
+export function toFriendlyName(tableName: string): string {
+  return tableName
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+// Adds a row to active_projects for the given table if one doesn't already
+// exist, using a friendly display name derived from the table name.
+export async function ensureProjectEntry(tableName: string): Promise<void> {
+  const existing = await query<{ id: number }>(
+    "SELECT id FROM active_projects WHERE table_name = ? LIMIT 1",
+    [tableName]
+  );
+  if (existing.length > 0) {
+    return;
+  }
+  await query(
+    "INSERT INTO active_projects (name, is_active, table_name) VALUES (?, 1, ?)",
+    [toFriendlyName(tableName), tableName]
   );
 }
 

@@ -2,6 +2,8 @@ import Nav from "../components/Nav";
 import Footer from "../components/Footer";
 import ContactForm from "../components/ContactForm";
 
+export const dynamic = "force-dynamic";
+
 export default function Contact() {
   return (
     <main
@@ -14,7 +16,7 @@ export default function Contact() {
     >
       <Nav />
       <section style={{ marginTop: "2rem" }}>
-        <h2 style={{ fontSize: "1.5rem", fontWeight: 600, marginBottom: "1rem" }}>
+        <h2 style={{ fontSize: "1.5rem", fontWeight: 400, marginBottom: "1rem" }}>
           contact
         </h2>
         <ContactForm />

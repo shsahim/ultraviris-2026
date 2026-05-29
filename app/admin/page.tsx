@@ -21,6 +21,9 @@ export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 25;
 
+// Tables hidden from the "choose a table to manage" dropdown.
+const HIDDEN_FROM_MANAGE = ["active_projects", "gallery_index", "index_cat"];
+
 export default async function AdminPage({
   searchParams,
 }: {
@@ -39,8 +42,14 @@ export default async function AdminPage({
   const health = await getSiteHealth();
   const tables = health.ok ? await listTables() : [];
 
+  // active_projects has its own dedicated section above, so don't also render
+  // it in the Manage data view.
   const selected =
-    params.table && tables.includes(params.table) ? params.table : null;
+    params.table &&
+    tables.includes(params.table) &&
+    params.table !== "active_projects"
+      ? params.table
+      : null;
   const page = Math.max(1, Number(params.page ?? 1) || 1);
 
   let columns: ColumnMeta[] = [];
@@ -56,6 +65,27 @@ export default async function AdminPage({
     const data = await getRows(selected, PAGE_SIZE, (page - 1) * PAGE_SIZE);
     rows = data.rows;
     total = data.total;
+  }
+
+  const PROJECTS_TABLE = "active_projects";
+  let projects: {
+    columns: ColumnMeta[];
+    rows: Row[];
+    total: number;
+    primaryKey: string | null;
+    activeColumn: string | null;
+  } | null = null;
+
+  if (health.ok && tables.includes(PROJECTS_TABLE)) {
+    const projectColumns = await getColumns(PROJECTS_TABLE);
+    const projectData = await getRows(PROJECTS_TABLE, PAGE_SIZE, 0);
+    projects = {
+      columns: projectColumns,
+      rows: projectData.rows,
+      total: projectData.total,
+      primaryKey: getPrimaryKey(projectColumns),
+      activeColumn: getActiveColumn(projectColumns),
+    };
   }
 
   return (
@@ -172,6 +202,26 @@ export default async function AdminPage({
         </p>
       </section>
 
+      {projects && (
+        <section className="admin-section">
+          <h2 className="admin-subtitle admin-projects-title">
+            Active Projects
+          </h2>
+          <TableManager
+            table={PROJECTS_TABLE}
+            columns={projects.columns}
+            rows={projects.rows}
+            primaryKey={projects.primaryKey}
+            activeColumn={projects.activeColumn}
+            total={projects.total}
+            page={1}
+            pageSize={PAGE_SIZE}
+            showTitle={false}
+            embedded
+          />
+        </section>
+      )}
+
       <section className="admin-section">
         <h2 className="admin-subtitle">Manage data</h2>
         {!health.ok ? (
@@ -180,7 +230,10 @@ export default async function AdminPage({
           </p>
         ) : (
           <>
-            <TableSelect tables={tables} selected={selected} />
+            <TableSelect
+              tables={tables.filter((t) => !HIDDEN_FROM_MANAGE.includes(t))}
+              selected={selected}
+            />
             <div className="admin-divider" />
             <CreateTableForm />
           </>

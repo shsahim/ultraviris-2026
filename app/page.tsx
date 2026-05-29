@@ -1,34 +1,15 @@
 import Nav from "./components/Nav";
 import Footer from "./components/Footer";
-import { query } from "@/lib/db";
-import { resolveImageSrc } from "@/lib/images";
+import { getHomeImages } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
-interface BrainJuiceRow {
-  ID: number;
-  File_Location: string;
-}
-
-async function getRandomImage(): Promise<{
-  row: BrainJuiceRow | null;
-  error: string | null;
-}> {
-  try {
-    const rows = await query<BrainJuiceRow>(
-      "SELECT ID, File_Location FROM brain_juice WHERE is_active = 1 ORDER BY RAND() LIMIT 1"
-    );
-    return { row: rows[0] ?? null, error: null };
-  } catch (error) {
-    return {
-      row: null,
-      error: error instanceof Error ? error.message : "Failed to query the database.",
-    };
-  }
-}
-
 export default async function Home() {
-  const { row, error } = await getRandomImage();
+  const images = await getHomeImages();
+  const row =
+    images.length > 0
+      ? images[Math.floor(Math.random() * images.length)]
+      : null;
 
   return (
     <main
@@ -49,10 +30,7 @@ export default async function Home() {
           gap: "1rem",
         }}
       >
-        {error && (
-          <p style={{ fontSize: "0.9rem", color: "#b00020" }}>{error}</p>
-        )}
-        {!error && !row && (
+        {!row && (
           <p style={{ fontSize: "0.9rem", color: "#777777" }}>
             No active images found.
           </p>
@@ -60,8 +38,8 @@ export default async function Home() {
         {row && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={resolveImageSrc(row.File_Location)}
-            alt={`brain_juice #${row.ID}`}
+            src={row.src}
+            alt={`brain_juice #${row.id}`}
             style={{
               maxWidth: "100%",
               maxHeight: "75vh",

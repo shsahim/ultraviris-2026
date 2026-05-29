@@ -10,7 +10,7 @@ export default function Footer() {
         textAlign: "center",
       }}
     >
-      &copy; {year} Ultraviris LLC. All rights reserved.
+      &copy; {year} Natalie R Nathan. All rights reserved.
     </footer>
   );
 }

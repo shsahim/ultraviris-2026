@@ -10,14 +10,19 @@ import {
 } from "@/lib/auth";
 import {
   createTableLike,
+  ensureProjectEntry,
   getActiveColumn,
   getColumns,
   getPrimaryKey,
   insertRow,
   setActive,
+  slugifyTableName,
   updateRow,
   type ColumnMeta,
 } from "@/lib/admin-db";
+import { invalidateAll } from "@/lib/cache";
+
+const PROJECTS_TABLE = "active_projects";
 
 export interface FormState {
   ok?: boolean;
@@ -38,7 +43,7 @@ export async function loginAction(
 
 export async function logoutAction(): Promise<void> {
   await destroySession();
-  redirect("/admin");
+  redirect("/");
 }
 
 // Builds a clean data object from submitted form fields, applying NULL for
@@ -89,6 +94,7 @@ export async function updateEntryAction(
     }
     const data = buildData(columns, formData, { includePrimaryKey: false });
     await updateRow(table, primaryKey, id, data);
+    invalidateAll();
     revalidatePath("/admin");
     return { ok: true };
   } catch (error) {
@@ -107,7 +113,31 @@ export async function addEntryAction(
     const table = String(formData.get("__table") ?? "");
     const columns = await getColumns(table);
     const data = buildData(columns, formData, { includePrimaryKey: true });
+
+    // Adding a project also creates a matching table (cloned from brain_juice)
+    // and stores that table's name on the row.
+    let projectTableName = "";
+    if (table === PROJECTS_TABLE) {
+      const name = typeof data.name === "string" ? data.name.trim() : "";
+      const provided =
+        typeof data.table_name === "string" ? data.table_name.trim() : "";
+      projectTableName = slugifyTableName(provided || name);
+      if (name && projectTableName) {
+        data.table_name = projectTableName;
+      } else {
+        projectTableName = "";
+      }
+    }
+
     await insertRow(table, data);
+
+    if (table === PROJECTS_TABLE && projectTableName) {
+      await createTableLike(projectTableName, "brain_juice", {
+        ifNotExists: true,
+      });
+    }
+
+    invalidateAll();
     revalidatePath("/admin");
     return { ok: true };
   } catch (error) {
@@ -128,6 +158,9 @@ export async function createTableAction(
   try {
     await requireAuth();
     await createTableLike(name);
+    // Creating a table also registers it as a project.
+    await ensureProjectEntry(name);
+    invalidateAll();
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Failed to create table.",
@@ -153,5 +186,6 @@ export async function setActiveAction(formData: FormData): Promise<void> {
     return;
   }
   await setActive(table, primaryKey, id, active);
+  invalidateAll();
   revalidatePath("/admin");
 }

@@ -1,6 +1,10 @@
 import Link from "next/link";
+import { getActiveProjects } from "@/lib/data";
+import WorkDropdown from "./WorkDropdown";
 
-export default function Nav() {
+export default async function Nav() {
+  const projects = await getActiveProjects();
+
   return (
     <header
       style={{
@@ -11,26 +15,28 @@ export default function Nav() {
         flexWrap: "wrap",
       }}
     >
-      <Link
-        href="/"
-        style={{ color: "#000000", textDecoration: "none" }}
-      >
-        <h1 style={{ fontSize: "2rem", fontWeight: 600 }}>ultraviris</h1>
+      <Link href="/" style={{ color: "#000000", textDecoration: "none" }}>
+        <h1 style={{ fontSize: "1.65rem", fontWeight: 400 }}>Natalie R Nathan</h1>
       </Link>
       <nav
         style={{
           display: "flex",
           alignItems: "center",
           gap: "2rem",
+          fontSize: "1.15rem",
         }}
       >
-        <Link href="/paintings" style={{ color: "#000000" }}>
-          Paintings
-        </Link>
-        <Link href="/resume" style={{ color: "#000000" }}>
+        <WorkDropdown projects={projects} />
+        <Link
+          href="/resume"
+          style={{ color: "#000000", textDecoration: "none" }}
+        >
           resume
         </Link>
-        <Link href="/contact" style={{ color: "#000000" }}>
+        <Link
+          href="/contact"
+          style={{ color: "#000000", textDecoration: "none" }}
+        >
           contact
         </Link>
       </nav>

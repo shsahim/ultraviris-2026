@@ -26,6 +26,8 @@ export default function TableManager({
   total,
   page,
   pageSize,
+  showTitle = true,
+  embedded = false,
 }: {
   table: string;
   columns: ColumnMeta[];
@@ -35,6 +37,8 @@ export default function TableManager({
   total: number;
   page: number;
   pageSize: number;
+  showTitle?: boolean;
+  embedded?: boolean;
 }) {
   const [editing, setEditing] = useState<Row | null>(null);
   const [adding, setAdding] = useState(false);
@@ -43,12 +47,16 @@ export default function TableManager({
   const canEdit = Boolean(primaryKey);
 
   return (
-    <div className="admin-section">
+    <div className={embedded ? "" : "admin-section"}>
       <div className="admin-section-header">
-        <h2 className="admin-subtitle">
-          {table}{" "}
-          <span className="admin-muted">({total} rows)</span>
-        </h2>
+        {showTitle ? (
+          <h2 className="admin-subtitle">
+            {table}{" "}
+            <span className="admin-muted">({total} rows)</span>
+          </h2>
+        ) : (
+          <span />
+        )}
         <button
           className="admin-button"
           onClick={() => {
