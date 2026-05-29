@@ -1,5 +1,5 @@
 # ── Configuration (override on the command line or via env) ──────────────────
-AWS_REGION      ?= us-east-1
+AWS_REGION      ?= us-west-2
 AWS_ACCOUNT_ID  ?= $(shell aws sts get-caller-identity --query Account --output text 2>/dev/null)
 ECR_REPO        ?= ultraviris
 IMAGE_TAG       ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo latest)

@@ -16,7 +16,7 @@
 set -euo pipefail
 exec > >(tee /var/log/ultraviris-userdata.log) 2>&1
 
-AWS_REGION="us-east-1"
+AWS_REGION="us-west-2"
 ECR_REPO="ultraviris"
 IMAGE_TAG="latest"
 APP_DIR="/opt/ultraviris"

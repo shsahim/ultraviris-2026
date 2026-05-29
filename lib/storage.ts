@@ -51,7 +51,7 @@ export async function saveImage(
 
   if (isS3Enabled()) {
     const client = new S3Client({
-      region: process.env.AWS_REGION ?? "us-east-1",
+      region: process.env.AWS_REGION ?? "us-west-2",
       credentials:
         process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
           ? {

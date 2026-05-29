@@ -92,7 +92,7 @@ email via [Amazon SES](https://docs.aws.amazon.com/ses/) using `lib/email.ts`.
 
 Set these in `.env.local`:
 
-- `AWS_REGION` – the SES region (e.g. `us-east-1`)
+- `AWS_REGION` – the SES region (e.g. `us-west-2`)
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` – IAM credentials with the
   `ses:SendEmail` permission
 - `SES_FROM_EMAIL` – a sender address/domain **verified** in SES
@@ -149,6 +149,39 @@ Run locally in Docker:
 make build           # build a local image for your host arch
 make run             # runs with --env-file .env.local on :3000
 npm test             # unit tests
+```
+
+## AWS setup script (issues #1–4, #6–8)
+
+Automates most production AWS resources. **Does not** create EC2 / ASG / ALB
+(GitHub issue #5).
+
+```bash
+cp scripts/aws-setup.config.example scripts/aws-setup.config
+# Edit: SES_FROM_EMAIL, SSH_KEY_FILE, ENV_SOURCE_FILE (.env.local), optional DOMAIN_NAME
+
+aws configure   # IAM user with permissions listed in scripts/setup-aws.sh header
+./scripts/setup-aws.sh
+```
+
+Creates (idempotently where possible):
+
+| Issue | What the script does |
+|-------|----------------------|
+| #1 S3 | Bucket, public-read policy for images, CORS, optional `aws s3 sync` of `public/images/` |
+| #2 SES | Starts verification for sender/recipients (you still click email links + request production access) |
+| #3 ECR | Repository `ultraviris` |
+| #4 GitHub | OIDC provider + IAM role for Actions → outputs `AWS_ROLE_ARN` for repo secret |
+| #6 Secrets | `ultraviris/env` and `ultraviris/ssh-key` in Secrets Manager |
+| #7 Health cron | Optional Lambda + EventBridge every 5 min if `HEALTH_CRON_URL` is set |
+| #8 TLS | Optional ACM cert + Route 53 validation records if `DOMAIN_NAME` / `HOSTED_ZONE_ID` set |
+| (prep) | EC2 instance IAM role + instance profile for launch template (not instances themselves) |
+
+Outputs are written to `scripts/aws-setup-outputs.env`. DB path fix (issue #9):
+
+```bash
+npx tsx scripts/fix-file-locations.mts --dry-run
+npx tsx scripts/fix-file-locations.mts
 ```
 
 ---

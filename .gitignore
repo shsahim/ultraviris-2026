@@ -144,3 +144,7 @@ vite.config.ts.timestamp-*
 
 # Locally-uploaded admin images (stored here until S3 is enabled)
 /public/images/
+
+# AWS setup script local config / generated outputs
+scripts/aws-setup.config
+scripts/aws-setup-outputs.env

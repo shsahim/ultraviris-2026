@@ -1,0 +1,45 @@
+# Copy to aws-setup.config and fill in values, then run:
+#   ./scripts/setup-aws.sh
+#
+# Requires: AWS CLI v2, credentials for an IAM user with broad setup permissions
+# (see header in setup-aws.sh). Does NOT create EC2 / ASG / ALB (GitHub issue #5).
+
+# --- Required ---
+export AWS_REGION="${AWS_REGION:-us-west-2}"
+
+# GitHub repo for OIDC trust (issue #4)
+export GITHUB_OWNER="${GITHUB_OWNER:-shsahim}"
+export GITHUB_REPO="${GITHUB_REPO:-ultraviris-2026}"
+
+# ECR repository name (issue #3)
+export ECR_REPO="${ECR_REPO:-ultraviris}"
+
+# SES (issue #2) — must be addresses you can click verification links for
+export SES_FROM_EMAIL="${SES_FROM_EMAIL:-}"
+export CONTACT_TO_EMAIL="${CONTACT_TO_EMAIL:-ultraviris@gmail.com}"
+export ALERT_EMAIL="${ALERT_EMAIL:-}"
+
+# Secrets Manager inputs (issue #6)
+# Dotenv file merged into ultraviris/env (use your filled-in .env.local)
+export ENV_SOURCE_FILE="${ENV_SOURCE_FILE:-.env.local}"
+# PEM file stored as ultraviris/ssh-key
+export SSH_KEY_FILE="${SSH_KEY_FILE:-}"
+
+# S3 (issue #1) — bucket name; must be globally unique (script appends account id if unset)
+export S3_BUCKET="${S3_BUCKET:-}"
+
+# --- Optional ---
+# Sync local gallery files to S3 after bucket creation
+export SYNC_LOCAL_IMAGES="${SYNC_LOCAL_IMAGES:-1}"
+
+# EventBridge + Lambda health cron (issue #7) — set when you have a public HTTPS URL
+export HEALTH_CRON_URL="${HEALTH_CRON_URL:-}"
+# export SKIP_HEALTH_SCHEDULER=1
+
+# ACM + Route 53 (issue #8)
+export DOMAIN_NAME="${DOMAIN_NAME:-}"
+export HOSTED_ZONE_ID="${HOSTED_ZONE_ID:-}"
+# export SKIP_ACM=1
+
+# Resource name prefix (IAM roles, Lambda, etc.)
+export NAME_PREFIX="${NAME_PREFIX:-ultraviris}"

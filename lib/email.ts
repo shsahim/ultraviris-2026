@@ -1,6 +1,6 @@
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 
-const region = process.env.AWS_REGION ?? "us-east-1";
+const region = process.env.AWS_REGION ?? "us-west-2";
 
 const ses = new SESClient({
   region,
