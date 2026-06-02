@@ -1,15 +1,8 @@
 import "server-only";
 import { query } from "@/lib/db";
+import type { ColumnMeta, Row } from "@/lib/admin-types";
 
-export interface ColumnMeta {
-  name: string;
-  dataType: string;
-  nullable: boolean;
-  isPrimaryKey: boolean;
-  isAutoIncrement: boolean;
-}
-
-export type Row = Record<string, unknown>;
+export type { ColumnMeta, Row } from "@/lib/admin-types";
 
 /** Backtick-escapes a SQL identifier. Only ever used on schema-validated names. */
 export function escapeId(identifier: string): string {

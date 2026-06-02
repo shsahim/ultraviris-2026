@@ -30,13 +30,18 @@
 #   ./scripts/setup-aws.sh --config /path/to/aws-setup.config
 #
 set -euo pipefail
+# Exit on any error (-e), treat unset variables as errors (-u), and fail pipelines
+# if any command in a pipe fails (-o pipefail). This keeps partial AWS setups from
+# looking "successful" when something actually broke midway through.
 
+# Resolve paths relative to this script so it can be run from any working directory.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/aws-setup.config"
 OUTPUT_FILE="${SCRIPT_DIR}/aws-setup-outputs.env"
 DRY_RUN=0
 
+# Parse command-line flags. --dry-run prints what would happen without calling AWS.
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --config) CONFIG_FILE="$2"; shift 2 ;;
@@ -51,6 +56,8 @@ done
 
 log() { echo "== $*"; }
 warn() { echo "!! $*" >&2; }
+
+# Wrapper for shell commands — respects --dry-run so you can preview a full run safely.
 run() {
   if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "[dry-run] $*"
@@ -66,6 +73,8 @@ require_cmd() {
   }
 }
 
+# Wrapper for AWS CLI calls. In dry-run mode we skip the actual API call entirely
+# because many aws subcommands would fail or hang without real credentials.
 aws_cmd() {
   if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "[dry-run] aws $*" >&2
@@ -74,14 +83,17 @@ aws_cmd() {
   aws "$@"
 }
 
+# Generate cryptographically random hex strings for session secrets and health-check tokens.
 rand_hex() {
   openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p -c 64
 }
 
+# Upsert a KEY=VALUE line in a dotenv-style file (used when building the Secrets Manager payload).
 dotenv_set() {
   # dotenv_set FILE KEY VALUE — upsert KEY=VALUE in a dotenv file
   local file="$1" key="$2" value="$3"
   if grep -qE "^${key}=" "$file" 2>/dev/null; then
+    # macOS and Linux use different sed -i syntax; handle both.
     if [[ "$(uname)" == Darwin ]]; then
       sed -i '' "s|^${key}=.*|${key}=${value}|" "$file"
     else
@@ -98,6 +110,8 @@ dotenv_get() {
 }
 
 # ── Load config ───────────────────────────────────────────────────────────────
+# aws-setup.config is a shell file you edit once with domain, email, bucket name, etc.
+# Anything not set there falls back to sensible defaults below.
 if [[ -f "$CONFIG_FILE" ]]; then
   # shellcheck source=/dev/null
   source "$CONFIG_FILE"
@@ -112,6 +126,8 @@ ECR_REPO="${ECR_REPO:-ultraviris}"
 NAME_PREFIX="${NAME_PREFIX:-ultraviris}"
 ENV_SOURCE_FILE="${ENV_SOURCE_FILE:-.env.local}"
 CONTACT_TO_EMAIL="${CONTACT_TO_EMAIL:-ultraviris@gmail.com}"
+# SYNC_LOCAL_IMAGES=1 uploads public/images/ to S3 on first run so the gallery works
+# immediately without waiting for the app to upload files at runtime.
 SYNC_LOCAL_IMAGES="${SYNC_LOCAL_IMAGES:-1}"
 
 require_cmd aws
@@ -121,6 +137,8 @@ require_cmd openssl
 export AWS_DEFAULT_REGION="$AWS_REGION"
 export AWS_REGION
 
+# Confirm credentials work before creating anything. Failing fast here avoids a
+# half-provisioned stack and confusing "access denied" errors later in the script.
 log "Verifying AWS credentials"
 if [[ "$DRY_RUN" -eq 0 ]]; then
   ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
@@ -132,6 +150,8 @@ fi
 log "Account: $ACCOUNT_ID  Caller: $CALLER_ARN"
 
 # ── Issue #3: ECR ─────────────────────────────────────────────────────────────
+# Elastic Container Registry stores Docker images built by GitHub Actions.
+# EC2 instances pull from here at deploy time instead of building on the server.
 setup_ecr() {
   log "ECR repository: $ECR_REPO"
   if aws_cmd ecr describe-repositories --repository-names "$ECR_REPO" >/dev/null 2>&1; then
@@ -147,7 +167,9 @@ setup_ecr() {
 }
 
 # ── Issue #1: S3 ──────────────────────────────────────────────────────────────
+# S3 hosts gallery images. The app expects publicly readable URLs (see IMAGE_BASE_URL).
 setup_s3() {
+  # Default bucket name includes the account ID so it is globally unique across AWS.
   if [[ -z "${S3_BUCKET:-}" ]]; then
     S3_BUCKET="${NAME_PREFIX}-images-${ACCOUNT_ID}"
   fi
@@ -156,6 +178,7 @@ setup_s3() {
   if aws_cmd s3api head-bucket --bucket "$S3_BUCKET" 2>/dev/null; then
     warn "Bucket $S3_BUCKET already exists"
   else
+    # us-east-1 is the only region that must NOT send LocationConstraint on create.
     if [[ "$AWS_REGION" == "us-east-1" ]]; then
       aws_cmd s3api create-bucket --bucket "$S3_BUCKET"
     else
@@ -164,7 +187,9 @@ setup_s3() {
     fi
   fi
 
-  # Public read for gallery objects (matches current app expecting public URLs).
+  # The gallery serves images via direct HTTPS URLs. We disable the account-level
+  # "block all public access" settings for this bucket and attach a read-only policy.
+  # (Tighter than this would require CloudFront or signed URLs — not what the app uses today.)
   aws_cmd s3api put-public-access-block --bucket "$S3_BUCKET" \
     --public-access-block-configuration \
     "BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false"
@@ -181,6 +206,7 @@ setup_s3() {
   }')"
   aws_cmd s3api put-bucket-policy --bucket "$S3_BUCKET" --policy "$POLICY"
 
+  # CORS allows browsers on other origins to fetch images (e.g. during local dev).
   aws_cmd s3api put-bucket-cors --bucket "$S3_BUCKET" --cors-configuration '{
     "CORSRules": [{
       "AllowedHeaders": ["*"],
@@ -192,6 +218,7 @@ setup_s3() {
 
   IMAGE_BASE_URL="https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com"
 
+  # One-time seed: copy committed images from the repo so production matches local dev.
   if [[ "$SYNC_LOCAL_IMAGES" == "1" && -d "$REPO_ROOT/public/images" ]]; then
     log "Syncing public/images → s3://$S3_BUCKET/images/"
     run aws s3 sync "$REPO_ROOT/public/images" "s3://${S3_BUCKET}/images/" \
@@ -200,14 +227,18 @@ setup_s3() {
 }
 
 # ── Issue #2: SES ─────────────────────────────────────────────────────────────
+# Simple Email Service sends contact-form mail and uptime alerts from the app.
 setup_ses() {
   if [[ -z "${SES_FROM_EMAIL:-}" ]]; then
     warn "SES_FROM_EMAIL not set — skipping SES verification (set in aws-setup.config)"
     return
   fi
   log "SES: verifying $SES_FROM_EMAIL"
+  # Starts the "click the link in your inbox" verification flow for the sender address.
   aws_cmd ses verify-email-identity --email-address "$SES_FROM_EMAIL" 2>/dev/null || true
 
+  # In SES sandbox mode you can only send TO verified addresses. Verify every
+  # recipient the app will email until you request production access in the console.
   if [[ -n "${ALERT_EMAIL:-}" && "$ALERT_EMAIL" != "$SES_FROM_EMAIL" ]]; then
     log "SES: verifying alert recipient $ALERT_EMAIL (needed while account is in sandbox)"
     aws_cmd ses verify-email-identity --email-address "$ALERT_EMAIL" 2>/dev/null || true
@@ -223,9 +254,12 @@ setup_ses() {
 }
 
 # ── Issue #4: GitHub OIDC + deploy role ─────────────────────────────────────
+# GitHub Actions assumes an IAM role via OIDC — no long-lived AWS access keys in GitHub secrets.
+# The role can only be assumed by workflows in your specific repo (see trust policy Condition).
 setup_github_oidc() {
   local provider_url="https://token.actions.githubusercontent.com"
   local aud="sts.amazonaws.com"
+  # AWS root CA thumbprint for GitHub's OIDC issuer (required when creating the provider).
   local thumbprint="6938fd4d98bab03faadb97b34396831e3780aea1"
   local oidc_arn="arn:aws:iam::${ACCOUNT_ID}:oidc-provider/token.actions.githubusercontent.com"
   local role_name="${NAME_PREFIX}-github-actions"
@@ -241,6 +275,7 @@ setup_github_oidc() {
     warn "OIDC provider already exists"
   fi
 
+  # Trust policy: only GitHub Actions tokens for repo:OWNER/REPO:* may assume this role.
   TRUST="$(jq -n \
     --arg oidc "$oidc_arn" \
     --arg owner "$GITHUB_OWNER" \
@@ -265,6 +300,7 @@ setup_github_oidc() {
     aws_cmd iam create-role --role-name "$role_name" --assume-role-policy-document "$TRUST"
   fi
 
+  # Inline policy: push Docker images to ECR during CI (build job needs PutImage, etc.).
   ECR_POLICY="$(jq -n \
     --arg acct "$ACCOUNT_ID" \
     --arg region "$AWS_REGION" \
@@ -302,6 +338,8 @@ setup_github_oidc() {
 }
 
 # ── IAM for EC2 instances (prep for issue #5 — role only, no instances) ───────
+# EC2 will use an instance profile so the app reads secrets and talks to S3/SES/ECR
+# without embedding credentials in the container or on disk.
 setup_ec2_iam() {
   local role_name="${NAME_PREFIX}-ec2"
   local profile_name="${NAME_PREFIX}-ec2"
@@ -321,6 +359,11 @@ setup_ec2_iam() {
     aws_cmd iam create-role --role-name "$role_name" --assume-role-policy-document "$TRUST"
   fi
 
+  # Permissions the Next.js app needs at runtime on EC2:
+  #   - Pull container images from ECR
+  #   - Read app env + SSH key from Secrets Manager (userdata.sh fetches these on boot)
+  #   - Send email via SES
+  #   - Read/write gallery objects in S3
   POLICY="$(jq -n \
     --arg acct "$ACCOUNT_ID" \
     --arg region "$AWS_REGION" \
@@ -373,6 +416,7 @@ setup_ec2_iam() {
     --policy-name "${NAME_PREFIX}-ec2-app" \
     --policy-document "$POLICY"
 
+  # Instance profile is what you attach to a launch template / EC2 instance — it wraps the role.
   if ! aws_cmd iam get-instance-profile --instance-profile-name "$profile_name" >/dev/null 2>&1; then
     aws_cmd iam create-instance-profile --instance-profile-name "$profile_name"
   fi
@@ -392,6 +436,8 @@ setup_ec2_iam() {
 }
 
 # ── Issue #6: Secrets Manager ─────────────────────────────────────────────────
+# Stores production environment variables and the SSH private key for the MySQL tunnel.
+# EC2 userdata pulls these at boot instead of baking secrets into the Docker image.
 setup_secrets() {
   local env_secret="${NAME_PREFIX}/env"
   local key_secret="${NAME_PREFIX}/ssh-key"
@@ -399,6 +445,7 @@ setup_secrets() {
   build_env="$(mktemp)"
 
   log "Building secret $env_secret"
+  # Start from your local .env.local (or .env.example as a template) and merge in AWS-specific values.
   if [[ -f "$REPO_ROOT/$ENV_SOURCE_FILE" ]]; then
     cp "$REPO_ROOT/$ENV_SOURCE_FILE" "$build_env"
   elif [[ -f "$REPO_ROOT/.env.example" ]]; then
@@ -408,11 +455,13 @@ setup_secrets() {
     echo "# ultraviris runtime env" >"$build_env"
   fi
 
-  # Production on EC2 should use the instance role, not static keys.
+  # On EC2 the instance IAM role provides AWS credentials automatically.
+  # Static access keys in the secret would be redundant and less secure — strip them out.
   sed -i.bak '/^AWS_ACCESS_KEY_ID=/d;/^AWS_SECRET_ACCESS_KEY=/d' "$build_env" 2>/dev/null || \
     sed -i '' '/^AWS_ACCESS_KEY_ID=/d;/^AWS_SECRET_ACCESS_KEY=/d' "$build_env"
   rm -f "${build_env}.bak"
 
+  # Inject values discovered or created by earlier setup steps.
   dotenv_set "$build_env" "AWS_REGION" "$AWS_REGION"
   [[ -n "${S3_BUCKET:-}" ]] && dotenv_set "$build_env" "S3_BUCKET" "$S3_BUCKET"
   [[ -n "${IMAGE_BASE_URL:-}" ]] && dotenv_set "$build_env" "IMAGE_BASE_URL" "$IMAGE_BASE_URL"
@@ -420,6 +469,7 @@ setup_secrets() {
   dotenv_set "$build_env" "CONTACT_TO_EMAIL" "$CONTACT_TO_EMAIL"
   [[ -n "${ALERT_EMAIL:-}" ]] && dotenv_set "$build_env" "ALERT_EMAIL" "${ALERT_EMAIL:-$CONTACT_TO_EMAIL}"
 
+  # HEALTH_CHECK_SECRET protects the /api/health/cron endpoint from anonymous callers.
   if [[ -z "$(dotenv_get "$build_env" HEALTH_CHECK_SECRET)" ]]; then
     HEALTH_CHECK_SECRET="$(rand_hex)"
     dotenv_set "$build_env" "HEALTH_CHECK_SECRET" "$HEALTH_CHECK_SECRET"
@@ -450,6 +500,7 @@ setup_secrets() {
   fi
   rm -f "$build_env"
 
+  # SSH key is stored separately so userdata can write it to disk for the DB tunnel script.
   if [[ -z "${SSH_KEY_FILE:-}" ]]; then
     warn "SSH_KEY_FILE not set — skipping $key_secret (required for DB tunnel on EC2)"
     return
@@ -476,11 +527,14 @@ setup_secrets() {
 }
 
 # ── Issue #7: EventBridge → Lambda → health cron URL ────────────────────────
+# Fires every 5 minutes and POSTs to the app's health/cron endpoint.
+# Replaces a cron job on the server — useful before EC2 exists or as a managed alternative.
 setup_health_scheduler() {
   if [[ "${SKIP_HEALTH_SCHEDULER:-0}" == "1" ]]; then
     warn "Skipping health scheduler (SKIP_HEALTH_SCHEDULER=1)"
     return
   fi
+  # HEALTH_CRON_URL is typically https://your-domain/api/health/cron — set after ALB/DNS exist.
   if [[ -z "${HEALTH_CRON_URL:-}" ]]; then
     warn "HEALTH_CRON_URL not set — skipping EventBridge/Lambda (set after ALB/domain exists)"
     return
@@ -510,10 +564,12 @@ setup_health_scheduler() {
     aws_cmd iam create-role --role-name "$role_name" --assume-role-policy-document "$LAMBDA_TRUST"
     aws_cmd iam attach-role-policy --role-name "$role_name" \
       --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    # IAM role propagation can take a few seconds before Lambda create-function succeeds.
     sleep 10
   fi
   local lambda_role_arn="arn:aws:iam::${ACCOUNT_ID}:role/${role_name}"
 
+  # Minimal inline Python handler — no dependencies, just an authenticated HTTP POST.
   mkdir -p /tmp/health-cron-pkg
   cat >/tmp/health-cron-pkg/lambda_function.py <<'PY'
 import os
@@ -553,6 +609,7 @@ PY
 
   local fn_arn="arn:aws:lambda:${AWS_REGION}:${ACCOUNT_ID}:function:${fn_name}"
 
+  # EventBridge rule on a fixed schedule triggers the Lambda.
   aws_cmd events put-rule \
     --name "$rule_name" \
     --schedule-expression "rate(5 minutes)" \
@@ -562,6 +619,7 @@ PY
     --rule "$rule_name" \
     --targets "Id"="1","Arn"="$fn_arn"
 
+  # Allow EventBridge to invoke this specific function (ignore error if permission already exists).
   if [[ "$DRY_RUN" -eq 0 ]]; then
     aws lambda add-permission \
       --function-name "$fn_name" \
@@ -574,6 +632,7 @@ PY
 }
 
 # ── Issue #8: ACM (+ optional Route 53 validation records) ────────────────────
+# Requests a TLS certificate for HTTPS on the ALB (issue #5). Wildcard covers subdomains.
 setup_acm() {
   if [[ "${SKIP_ACM:-0}" == "1" ]]; then
     warn "Skipping ACM (SKIP_ACM=1)"
@@ -603,6 +662,7 @@ setup_acm() {
     return
   fi
 
+  # Auto-create CNAME records in Route 53 so ACM can prove domain ownership.
   local records
   records="$(aws acm describe-certificate --certificate-arn "$cert_arn" \
     --query 'Certificate.DomainValidationOptions[?ResourceRecord!=null].ResourceRecord' --output json)"
@@ -632,6 +692,7 @@ setup_acm() {
 }
 
 # ── Write outputs ─────────────────────────────────────────────────────────────
+# Saves ARNs and resource names for GitHub secrets, Terraform/manual EC2 setup, and re-runs.
 write_outputs() {
   log "Writing $OUTPUT_FILE"
   cat >"$OUTPUT_FILE" <<EOF
@@ -653,6 +714,8 @@ EOF
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────
+# Order matters: S3/ECR before secrets (IMAGE_BASE_URL), secrets before health scheduler
+# (HEALTH_CHECK_SECRET), ACM last since it depends on DOMAIN_NAME and is optional.
 main() {
   cd "$REPO_ROOT"
   setup_ecr

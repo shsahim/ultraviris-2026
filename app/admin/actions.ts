@@ -18,8 +18,8 @@ import {
   setActive,
   slugifyTableName,
   updateRow,
-  type ColumnMeta,
 } from "@/lib/admin-db";
+import type { ColumnMeta } from "@/lib/admin-types";
 import { invalidateAll } from "@/lib/cache";
 
 const PROJECTS_TABLE = "active_projects";

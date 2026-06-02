@@ -31,7 +31,7 @@ export default async function AdminPage({
 }) {
   if (!(await isAuthed())) {
     return (
-      <main className="admin-main">
+      <main className="admin-main admin-main--guest">
         <LoginForm configured={isAdminConfigured()} />
         <Footer />
       </main>
@@ -94,7 +94,7 @@ export default async function AdminPage({
         <Toast message={`Successfully created Table ${params.created}`} />
       )}
       <header className="admin-header">
-        <h1 className="admin-title">ultraviris admin</h1>
+        <h1 className="admin-title">Natalie R Nathan admin</h1>
         <form action={logoutAction}>
           <button className="admin-button admin-button--ghost" type="submit">
             Sign out

@@ -10,7 +10,7 @@ export default function LoginForm({ configured }: { configured: boolean }) {
 
   return (
     <div className="admin-login">
-      <h1 className="admin-title">ultraviris admin</h1>
+      <h1 className="admin-title">Natalie R Nathan admin</h1>
       {!configured ? (
         <p className="admin-note admin-note--error">
           Admin is not configured. Set <code>ADMIN_PASSWORD</code> in your

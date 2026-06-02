@@ -1,12 +1,14 @@
+import "server-only";
 import { readFileSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import mysql from "mysql2/promise";
-import { Client } from "ssh2";
 
 declare global {
   // eslint-disable-next-line no-var
   var _dbPoolPromise: Promise<mysql.Pool> | undefined;
+  // eslint-disable-next-line no-var
+  var _cacheWarmStarted: boolean | undefined;
 }
 
 function expandHome(filePath: string): string {
@@ -29,6 +31,7 @@ function loadPrivateKey(): Buffer {
 // over the tunnel ("Standard TCP/IP over SSH"). The mysql2 pool then connects
 // to that local port.
 async function createTunneledPool(): Promise<mysql.Pool> {
+  const { Client } = await import("ssh2");
   const ssh = new Client();
 
   await new Promise<void>((resolve, reject) => {
@@ -95,8 +98,17 @@ async function createTunneledPool(): Promise<mysql.Pool> {
   });
 }
 
+function scheduleWarmCache(): void {
+  if (global._cacheWarmStarted) return;
+  global._cacheWarmStarted = true;
+  void import("@/lib/warm")
+    .then(({ warmCache }) => warmCache())
+    .catch(() => {});
+}
+
 export function getPool(): Promise<mysql.Pool> {
   if (!global._dbPoolPromise) {
+    scheduleWarmCache();
     global._dbPoolPromise = createTunneledPool().catch((err) => {
       // Don't cache a failed setup so the next call can retry.
       global._dbPoolPromise = undefined;
