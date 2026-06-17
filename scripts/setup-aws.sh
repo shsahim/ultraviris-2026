@@ -224,6 +224,13 @@ setup_s3() {
     run aws s3 sync "$REPO_ROOT/public/images" "s3://${S3_BUCKET}/images/" \
       --exclude ".DS_Store" --exclude "_notes/*" --exclude "**/_notes/*"
   fi
+
+  # Publish the on-instance deploy script. userdata.sh fetches it on boot and the
+  # SSM deploy pipeline runs it. (Contains no secrets — only container plumbing.)
+  if [[ -f "$REPO_ROOT/scripts/deploy.sh" ]]; then
+    log "Uploading scripts/deploy.sh → s3://$S3_BUCKET/ops/deploy.sh"
+    run aws s3 cp "$REPO_ROOT/scripts/deploy.sh" "s3://${S3_BUCKET}/ops/deploy.sh"
+  fi
 }
 
 # ── Issue #2: SES ─────────────────────────────────────────────────────────────
@@ -334,6 +341,71 @@ setup_github_oidc() {
     --policy-name "${NAME_PREFIX}-ecr-push" \
     --policy-document "$ECR_POLICY"
 
+  # Inline policy: deploy via SSM Run Command. The CD pipeline tells instances
+  # tagged App=ultraviris to run /opt/ultraviris/deploy.sh <tag>. SendCommand is
+  # scoped to that tag + the AWS-RunShellScript document; the read APIs used for
+  # polling don't support resource-level scoping, so they're "*".
+  DEPLOY_POLICY="$(jq -n \
+    --arg acct "$ACCOUNT_ID" \
+    --arg region "$AWS_REGION" \
+    --arg app "$NAME_PREFIX" \
+    '{
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Sid: "SendCommandToTaggedInstances",
+          Effect: "Allow",
+          Action: ["ssm:SendCommand"],
+          Resource: ("arn:aws:ec2:" + $region + ":" + $acct + ":instance/*"),
+          Condition: { StringEquals: { ("aws:ResourceTag/App"): $app } }
+        },
+        {
+          Sid: "SendCommandDocument",
+          Effect: "Allow",
+          Action: ["ssm:SendCommand"],
+          Resource: ("arn:aws:ssm:" + $region + "::document/AWS-RunShellScript")
+        },
+        {
+          Sid: "TrackCommands",
+          Effect: "Allow",
+          Action: [
+            "ssm:GetCommandInvocation",
+            "ssm:ListCommandInvocations",
+            "ssm:ListCommands",
+            "ssm:DescribeInstanceInformation"
+          ],
+          Resource: "*"
+        },
+        {
+          Sid: "PinImageTag",
+          Effect: "Allow",
+          Action: ["ssm:PutParameter", "ssm:GetParameter"],
+          Resource: ("arn:aws:ssm:" + $region + ":" + $acct + ":parameter/" + $app + "/image-tag")
+        },
+        {
+          Sid: "InstanceRefresh",
+          Effect: "Allow",
+          Action: [
+            "autoscaling:StartInstanceRefresh",
+            "autoscaling:DescribeInstanceRefreshes",
+            "autoscaling:DescribeAutoScalingGroups"
+          ],
+          Resource: "*"
+        },
+        {
+          Sid: "ResolveTargets",
+          Effect: "Allow",
+          Action: ["ec2:DescribeInstances"],
+          Resource: "*"
+        }
+      ]
+    }')"
+
+  aws_cmd iam put-role-policy \
+    --role-name "$role_name" \
+    --policy-name "${NAME_PREFIX}-ssm-deploy" \
+    --policy-document "$DEPLOY_POLICY"
+
   log "Add GitHub repo secret AWS_ROLE_ARN=$GITHUB_ROLE_ARN"
 }
 
@@ -397,6 +469,11 @@ setup_ec2_iam() {
         },
         {
           Effect: "Allow",
+          Action: ["ssm:GetParameter"],
+          Resource: ("arn:aws:ssm:" + $region + ":" + $acct + ":parameter/" + $prefix + "/image-tag")
+        },
+        {
+          Effect: "Allow",
           Action: ["ses:SendEmail", "ses:SendRawEmail"],
           Resource: "*"
         },
@@ -415,6 +492,12 @@ setup_ec2_iam() {
     --role-name "$role_name" \
     --policy-name "${NAME_PREFIX}-ec2-app" \
     --policy-document "$POLICY"
+
+  # SSM agent registration so the deploy pipeline can run commands on the host
+  # (and so you get Session Manager shell access without opening SSH).
+  aws_cmd iam attach-role-policy \
+    --role-name "$role_name" \
+    --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
 
   # Instance profile is what you attach to a launch template / EC2 instance — it wraps the role.
   if ! aws_cmd iam get-instance-profile --instance-profile-name "$profile_name" >/dev/null 2>&1; then
@@ -735,7 +818,8 @@ main() {
   echo "  • Click SES verification links; request production access"
   echo "  • Set ADMIN_PASSWORD in Secrets Manager secret ${NAME_PREFIX}/env if empty"
   echo "  • GitHub secret AWS_ROLE_ARN → see $OUTPUT_FILE"
-  echo "  • Provision EC2/ASG/ALB (issue #5) using instance profile ${NAME_PREFIX}-ec2"
+  echo "  • Launch the app server:  ./scripts/launch-ec2.sh   (uses ${NAME_PREFIX}-ec2 profile,"
+  echo "    tags App=${NAME_PREFIX}, runs userdata.sh). Then push to main to deploy via the pipeline."
   echo "  • Set HEALTH_CRON_URL and re-run, or use userdata host cron until ALB exists"
   echo "  • Issue #9: run scripts/fix-file-locations.mts before relying on S3-only images"
 }

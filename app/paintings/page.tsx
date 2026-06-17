@@ -1,9 +1,32 @@
+import type { Metadata } from "next";
 import Nav from "../components/Nav";
 import Footer from "../components/Footer";
 import Gallery from "../components/Gallery";
 import { getGalleryImages, getProjectById } from "@/lib/data";
+import { SITE_NAME } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: Promise<{ project?: string }>;
+}): Promise<Metadata> {
+  const { project } = await searchParams;
+  const info = project ? await getProjectById(project).catch(() => null) : null;
+  const title = info?.name ?? "Work";
+  const description = info?.name
+    ? `${info.name} — a project by ${SITE_NAME}.`
+    : `Selected paintings and projects by ${SITE_NAME}.`;
+  // Point project galleries' canonical at the base Work page to avoid indexing
+  // many near-duplicate query-string URLs.
+  return {
+    title,
+    description,
+    alternates: { canonical: "/paintings" },
+    openGraph: { title: `${title} — ${SITE_NAME}`, description },
+  };
+}
 
 export default async function Paintings({
   searchParams,

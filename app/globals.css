@@ -312,6 +312,53 @@ b {
   }
 }
 
+/* ---------- Site header / nav ---------- */
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+  flex-wrap: wrap;
+}
+
+.site-brand {
+  color: #000000;
+  text-decoration: none;
+}
+
+.site-title {
+  font-size: 1.65rem;
+  font-weight: 400;
+}
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  font-size: 1.15rem;
+}
+
+.site-nav-link {
+  color: #000000;
+  text-decoration: none;
+}
+
+@media (max-width: 640px) {
+  .site-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.85rem;
+  }
+  .site-title {
+    font-size: 1.4rem;
+  }
+  .site-nav {
+    gap: 1.5rem;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+}
+
 /* ---------- Work dropdown ---------- */
 .work-dropdown {
   position: relative;
@@ -380,10 +427,13 @@ b {
   color: #999999;
 }
 
-@media (max-width: 520px) {
+@media (max-width: 640px) {
+  /* On mobile the nav is left-aligned, so anchor the menu to the left and cap
+     its width so it can never run off either edge of the viewport. */
   .work-menu {
-    left: auto;
-    right: 0;
+    left: 0;
+    right: auto;
+    max-width: calc(100vw - 4rem);
   }
 }
 
@@ -650,6 +700,22 @@ b {
   word-break: break-all;
 }
 
+.admin-broken-help {
+  margin-top: 0.5rem;
+}
+
+.admin-broken-delete {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.admin-broken-delete .admin-button {
+  padding: 0.35rem 0.8rem;
+  font-size: 0.8rem;
+}
+
 .admin-field {
   display: flex;
   flex-direction: column;
@@ -719,6 +785,19 @@ b {
   color: #000000;
   text-decoration: none;
   display: inline-block;
+}
+
+.admin-button--danger {
+  background: #ffffff;
+  color: #b3261e;
+  border-color: #e6c2c2;
+}
+
+.admin-button--danger:hover {
+  opacity: 1;
+  background: #b3261e;
+  color: #ffffff;
+  border-color: #b3261e;
 }
 
 .admin-button--small {

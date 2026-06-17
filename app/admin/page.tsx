@@ -1,4 +1,5 @@
-import { isAdminConfigured, isAuthed } from "@/lib/auth";
+import { getSessionUsername, isAdminConfigured, isAuthed } from "@/lib/auth";
+import { listUsers } from "@/lib/admin-users";
 import {
   getActiveColumn,
   getColumns,
@@ -12,12 +13,20 @@ import { getSiteHealth } from "@/lib/health";
 import { logoutAction } from "./actions";
 import Footer from "../components/Footer";
 import LoginForm from "./components/LoginForm";
+import AdminUsers from "./components/AdminUsers";
+import BrokenImages from "./components/BrokenImages";
 import TableSelect from "./components/TableSelect";
 import TableManager from "./components/TableManager";
 import CreateTableForm from "./components/CreateTableForm";
 import Toast from "./components/Toast";
 
 export const dynamic = "force-dynamic";
+
+// Keep the admin area out of search engines.
+export const metadata = {
+  title: "Admin",
+  robots: { index: false, follow: false },
+};
 
 const PAGE_SIZE = 25;
 
@@ -32,11 +41,14 @@ export default async function AdminPage({
   if (!(await isAuthed())) {
     return (
       <main className="admin-main admin-main--guest">
-        <LoginForm configured={isAdminConfigured()} />
+        <LoginForm configured={await isAdminConfigured()} />
         <Footer />
       </main>
     );
   }
+
+  const currentUser = await getSessionUsername();
+  const adminUsers = await listUsers().catch(() => []);
 
   const params = await searchParams;
   const health = await getSiteHealth();
@@ -204,37 +216,10 @@ export default async function AdminPage({
           </div>
         </div>
 
-        {health.images.brokenList.length > 0 && (
-          <details className="admin-broken-images">
-            <summary>
-              Show broken images ({health.images.broken})
-            </summary>
-            <table className="admin-table admin-broken-table">
-              <thead>
-                <tr>
-                  <th>Table</th>
-                  <th>ID</th>
-                  <th>File_Location</th>
-                </tr>
-              </thead>
-              <tbody>
-                {health.images.brokenList.map((b) => (
-                  <tr key={`${b.table}-${b.id}`}>
-                    <td>{b.table}</td>
-                    <td>{b.id}</td>
-                    <td>{b.path}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {health.images.broken > health.images.brokenList.length && (
-              <p className="admin-muted">
-                Showing first {health.images.brokenList.length} of{" "}
-                {health.images.broken}.
-              </p>
-            )}
-          </details>
-        )}
+        <BrokenImages
+          items={health.images.brokenList}
+          total={health.images.broken}
+        />
 
         {health.ok && (
           <>
@@ -262,6 +247,8 @@ export default async function AdminPage({
           Last checked {new Date(health.checkedAt).toLocaleString()}
         </p>
       </section>
+
+      <AdminUsers users={adminUsers} currentUser={currentUser} />
 
       {projects && (
         <section className="admin-section">

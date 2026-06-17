@@ -1,8 +1,16 @@
+import type { Metadata } from "next";
 import Nav from "../components/Nav";
 import Footer from "../components/Footer";
 import ContactForm from "../components/ContactForm";
+import { SITE_NAME } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Contact",
+  description: `Get in touch with ${SITE_NAME} for inquiries, commissions, and exhibitions.`,
+  alternates: { canonical: "/contact" },
+};
 
 export default function Contact() {
   return (

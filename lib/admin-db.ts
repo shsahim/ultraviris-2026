@@ -207,6 +207,19 @@ export async function insertRow(
   );
 }
 
+export async function deleteRow(
+  table: string,
+  primaryKey: string,
+  id: string
+): Promise<void> {
+  const columns = await getColumns(table);
+  assertValidColumns(columns, [primaryKey]);
+  await query(
+    `DELETE FROM ${escapeId(table)} WHERE ${escapeId(primaryKey)} = ?`,
+    [id]
+  );
+}
+
 export async function setActive(
   table: string,
   primaryKey: string,

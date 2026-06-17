@@ -25,6 +25,7 @@
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
     "@types/ssh2": "^1.15.5",
+    "png-to-ico": "^3.0.1",
     "typescript": "^5.7.3",
     "vitest": "^2.1.9"
   }

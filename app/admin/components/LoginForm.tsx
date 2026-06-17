@@ -13,18 +13,30 @@ export default function LoginForm({ configured }: { configured: boolean }) {
       <h1 className="admin-title">Natalie R Nathan admin</h1>
       {!configured ? (
         <p className="admin-note admin-note--error">
-          Admin is not configured. Set <code>ADMIN_PASSWORD</code> in your
-          environment, then restart the server.
+          Admin is not configured. Set <code>ADMIN_PASSWORD</code> (and
+          optionally <code>ADMIN_USERNAME</code>) in your environment to seed the
+          first account, then restart the server.
         </p>
       ) : (
         <form action={action} className="admin-login-form">
+          <label className="admin-field">
+            <span className="admin-label">Username</span>
+            <input
+              type="text"
+              name="username"
+              autoComplete="username"
+              required
+              autoFocus
+              className="admin-input"
+            />
+          </label>
           <label className="admin-field">
             <span className="admin-label">Password</span>
             <input
               type="password"
               name="password"
+              autoComplete="current-password"
               required
-              autoFocus
               className="admin-input"
             />
           </label>

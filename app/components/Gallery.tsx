@@ -19,17 +19,31 @@ export default function Gallery({
   projectName: string;
 }) {
   const [index, setIndex] = useState<number | null>(null);
+  // Hide images that fail to load (e.g. missing from S3) so visitors never see
+  // broken-image icons. Navigation operates on the still-visible set.
+  const [brokenIds, setBrokenIds] = useState<Set<number>>(new Set());
+  const visible = images.filter((img) => !brokenIds.has(img.id));
   const open = index !== null;
+
+  const markBroken = useCallback((id: number) => {
+    setBrokenIds((prev) => {
+      const nextSet = new Set(prev);
+      nextSet.add(id);
+      return nextSet;
+    });
+  }, []);
 
   const close = useCallback(() => setIndex(null), []);
   const prev = useCallback(
     () =>
-      setIndex((i) => (i === null ? i : (i - 1 + images.length) % images.length)),
-    [images.length]
+      setIndex((i) =>
+        i === null ? i : (i - 1 + visible.length) % visible.length
+      ),
+    [visible.length]
   );
   const next = useCallback(
-    () => setIndex((i) => (i === null ? i : (i + 1) % images.length)),
-    [images.length]
+    () => setIndex((i) => (i === null ? i : (i + 1) % visible.length)),
+    [visible.length]
   );
 
   useEffect(() => {
@@ -49,27 +63,28 @@ export default function Gallery({
 
   // Preload the neighbouring images so paging through the carousel is instant.
   useEffect(() => {
-    if (index === null || images.length < 2) return;
+    if (index === null || visible.length < 2) return;
     const neighbours = [
-      images[(index + 1) % images.length],
-      images[(index - 1 + images.length) % images.length],
+      visible[(index + 1) % visible.length],
+      visible[(index - 1 + visible.length) % visible.length],
     ];
     for (const img of neighbours) {
+      if (!img) continue;
       const preloader = new window.Image();
       preloader.src = img.src;
     }
-  }, [index, images]);
+  }, [index, visible]);
 
-  if (images.length === 0) {
+  if (visible.length === 0) {
     return <p style={{ color: "#777777" }}>No images in this project yet.</p>;
   }
 
-  const current = index !== null ? images[index] : null;
+  const current = index !== null ? visible[index] ?? null : null;
 
   return (
     <>
       <div className="gallery-grid">
-        {images.map((img, i) => (
+        {visible.map((img, i) => (
           <button
             key={img.id}
             type="button"
@@ -83,6 +98,7 @@ export default function Gallery({
               alt={img.title || projectName}
               loading="lazy"
               decoding="async"
+              onError={() => markBroken(img.id)}
               style={{
                 aspectRatio:
                   img.width && img.height
@@ -113,7 +129,7 @@ export default function Gallery({
             ×
           </button>
 
-          {images.length > 1 && (
+          {visible.length > 1 && (
             <>
               <button
                 type="button"
@@ -146,7 +162,14 @@ export default function Gallery({
           >
             <div className="gallery-lightbox-image">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={current.src} alt={current.title || projectName} />
+              <img
+                src={current.src}
+                alt={current.title || projectName}
+                onError={() => {
+                  markBroken(current.id);
+                  close();
+                }}
+              />
             </div>
             <div className="gallery-lightbox-info">
               <h3 className="gallery-info-title">
@@ -161,7 +184,7 @@ export default function Gallery({
                 </p>
               ) : null}
               <p className="gallery-info-count">
-                {(index ?? 0) + 1} / {images.length}
+                {(index ?? 0) + 1} / {visible.length}
               </p>
             </div>
           </div>

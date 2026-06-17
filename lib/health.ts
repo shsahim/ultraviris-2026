@@ -6,10 +6,10 @@ import {
   GetSendQuotaCommand,
   SESClient,
 } from "@aws-sdk/client-ses";
-import { HeadBucketCommand, S3Client } from "@aws-sdk/client-s3";
+import { HeadBucketCommand } from "@aws-sdk/client-s3";
 import { query } from "@/lib/db";
 import { escapeId, listTables } from "@/lib/admin-db";
-import { isS3Enabled } from "@/lib/storage";
+import { getS3Client, isS3Enabled, listS3ImageKeys } from "@/lib/storage";
 
 export interface TableCount {
   table: string;
@@ -81,6 +81,20 @@ function localImageExists(fileLocation: string): boolean {
     (alt) =>
       alt !== ext.toLowerCase() &&
       existsSync(path.join(PUBLIC_DIR, base + alt))
+  );
+}
+
+// S3 equivalent of localImageExists: a File_Location maps to an object key
+// (sans leading slash); allow a sibling key with a different image extension.
+function s3KeyExists(keys: Set<string>, fileLocation: string): boolean {
+  const key = fileLocation.replace(/^\.?\/+/, "").trim();
+  if (!key) return false;
+  if (keys.has(key)) return true;
+
+  const ext = path.extname(key);
+  const base = key.slice(0, key.length - ext.length);
+  return IMAGE_EXT_FALLBACKS.some(
+    (alt) => alt !== ext.toLowerCase() && keys.has(base + alt)
   );
 }
 
@@ -224,16 +238,7 @@ async function checkEmailHealth(): Promise<EmailHealth> {
 async function checkStorageHealth(): Promise<StorageHealth> {
   if (isS3Enabled()) {
     try {
-      const client = new S3Client({
-        region: process.env.AWS_REGION ?? "us-west-2",
-        credentials:
-          process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
-            ? {
-                accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-                secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-              }
-            : undefined,
-      });
+      const client = getS3Client();
       await withTimeout(
         client.send(new HeadBucketCommand({ Bucket: process.env.S3_BUCKET })),
         4000,
@@ -276,20 +281,18 @@ async function checkStorageHealth(): Promise<StorageHealth> {
 async function checkImageHealth(): Promise<ImageHealth> {
   const mode: "s3" | "local" = isS3Enabled() ? "s3" : "local";
 
-  // Per-image verification only runs against the local public/ directory.
-  if (mode === "s3") {
-    return {
-      mode,
-      checked: 0,
-      ok: 0,
-      broken: 0,
-      brokenList: [],
-      skipped: true,
-      message: "Images are served from S3; per-image verification runs in local mode.",
-    };
-  }
-
   try {
+    // Build the existence predicate for the active storage backend. For S3 we
+    // index the bucket once (list its keys) and check membership; locally we
+    // stat the public/ directory.
+    let imageExists: (file: string) => boolean;
+    if (mode === "s3") {
+      const keys = await withTimeout(listS3ImageKeys(), 8000, "S3 list");
+      imageExists = (file) => s3KeyExists(keys, file);
+    } else {
+      imageExists = (file) => localImageExists(file);
+    }
+
     // Find which image-bearing tables have File_Location / is_active columns.
     const colRows = await query<{ table: string; col: string }>(
       `SELECT TABLE_NAME AS \`table\`, COLUMN_NAME AS col
@@ -324,7 +327,7 @@ async function checkImageHealth(): Promise<ImageHealth> {
       for (const row of rows) {
         checked++;
         const file = String(row.File_Location ?? "").trim();
-        if (file && localImageExists(file)) {
+        if (file && imageExists(file)) {
           ok++;
         } else if (brokenList.length < MAX_BROKEN_LISTED) {
           brokenList.push({

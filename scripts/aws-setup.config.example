@@ -41,5 +41,25 @@ export DOMAIN_NAME="${DOMAIN_NAME:-}"
 export HOSTED_ZONE_ID="${HOSTED_ZONE_ID:-}"
 # export SKIP_ACM=1
 
+# ALB + Auto Scaling Group (scripts/setup-alb-asg.sh)
+# Domain served over HTTPS by the ALB (ACM cert is requested for this name).
+export DOMAIN_NAME="${DOMAIN_NAME:-nataliernathan.com}"
+export INSTANCE_TYPE="${INSTANCE_TYPE:-t4g.small}"
+export ASG_MIN="${ASG_MIN:-1}"
+export ASG_DESIRED="${ASG_DESIRED:-1}"
+export ASG_MAX="${ASG_MAX:-2}"
+
+# Cross-account DNS (scripts/setup-dns.sh) — the Route 53 zone for DOMAIN_NAME
+# lives in this other account. Two ways to reach it (pick one):
+#   - Simplest: set DNS_PROFILE to an AWS CLI profile with direct write access to
+#     the DNS-account zone; setup-dns.sh writes records with it (no role needed).
+#   - Otherwise: the app account assumes DNS_ROLE_NAME in DNS_ACCOUNT_ID.
+export DNS_ACCOUNT_ID="${DNS_ACCOUNT_ID:-116851791213}"
+export DNS_ROLE_NAME="${DNS_ROLE_NAME:-ultraviris-dns-manager}"
+# Direct-write profile (leave empty to use the assume-role path instead).
+export DNS_PROFILE="${DNS_PROFILE:-}"
+# Optional shared secret required when assuming the DNS role (recommended).
+export ROLE_EXTERNAL_ID="${ROLE_EXTERNAL_ID:-}"
+
 # Resource name prefix (IAM roles, Lambda, etc.)
 export NAME_PREFIX="${NAME_PREFIX:-ultraviris}"

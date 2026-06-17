@@ -1,4 +1,4 @@
-name: Build and push (ARM64 → ECR)
+name: CI/CD (test → ECR → EC2)
 
 on:
   push:
@@ -14,12 +14,39 @@ permissions:
 env:
   AWS_REGION: us-west-2
   ECR_REPO: ultraviris
+  # EC2 tag the deploy step targets (instances launched by scripts/launch-ec2.sh).
+  APP_TAG: ultraviris
+  # ASG + SSM image-tag pointer used by the zero-downtime instance-refresh deploy.
+  ASG_NAME: ultraviris-asg
+  IMAGE_TAG_PARAM: /ultraviris/image-tag
 
 jobs:
-  build:
+  # ── Gate everything on the same checks that run on PRs ──────────────────────
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run lint
+      - run: npm test
+
+  # ── Build the ARM64 image and push it to ECR (tag = git short sha + latest) ──
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.vars.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: vars
+        run: echo "tag=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -37,23 +64,139 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Docker metadata (tags)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}
-          tags: |
-            type=sha,format=short
-            type=ref,event=tag
-            type=raw,value=latest,enable={{is_default_branch}}
-
       - name: Build and push (linux/arm64)
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ steps.vars.outputs.tag }}
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:latest
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.vars.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # ── Deploy the freshly-pushed tag to the EC2 instance(s) via SSM ─────────────
+  deploy:
+    needs: build
+    # Only auto-deploy from the default branch; tag builds just publish to ECR.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Pin the deployed image tag
+        env:
+          TAG: ${{ needs.build.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          # Record the previous value so we can revert on a failed rollout, then
+          # point new launches (instance refresh, scale-out) at this exact sha.
+          PREV="$(aws ssm get-parameter --name "$IMAGE_TAG_PARAM" \
+            --query 'Parameter.Value' --output text 2>/dev/null || echo latest)"
+          echo "PREV_IMAGE_TAG=$PREV" >> "$GITHUB_ENV"
+          aws ssm put-parameter --name "$IMAGE_TAG_PARAM" --type String \
+            --value "$TAG" --overwrite >/dev/null
+          echo "Pinned $IMAGE_TAG_PARAM = $TAG (was $PREV)"
+
+      - name: Deploy (ASG instance refresh, or in-place SSM fallback)
+        env:
+          TAG: ${{ needs.build.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+
+          ASG_EXISTS="$(aws autoscaling describe-auto-scaling-groups \
+            --auto-scaling-group-names "$ASG_NAME" \
+            --query 'AutoScalingGroups[0].AutoScalingGroupName' --output text 2>/dev/null || echo None)"
+
+          # ── Path A: zero-downtime rolling replacement via instance refresh ──
+          if [ "$ASG_EXISTS" = "$ASG_NAME" ]; then
+            echo "Starting instance refresh on $ASG_NAME for tag $TAG"
+            REFRESH_ID="$(aws autoscaling start-instance-refresh \
+              --auto-scaling-group-name "$ASG_NAME" \
+              --preferences 'MinHealthyPercentage=100,InstanceWarmup=90' \
+              --query InstanceRefreshId --output text)"
+            echo "InstanceRefreshId: $REFRESH_ID"
+
+            STATUS=Pending
+            for _ in $(seq 1 120); do
+              sleep 15
+              STATUS="$(aws autoscaling describe-instance-refreshes \
+                --auto-scaling-group-name "$ASG_NAME" --instance-refresh-ids "$REFRESH_ID" \
+                --query 'InstanceRefreshes[0].Status' --output text)"
+              PCT="$(aws autoscaling describe-instance-refreshes \
+                --auto-scaling-group-name "$ASG_NAME" --instance-refresh-ids "$REFRESH_ID" \
+                --query 'InstanceRefreshes[0].PercentageComplete' --output text)"
+              echo "  refresh: $STATUS (${PCT:-0}%)"
+              case "$STATUS" in
+                Successful|Failed|Cancelled|RollbackFailed|RollbackSuccessful) break ;;
+              esac
+            done
+
+            if [ "$STATUS" != "Successful" ]; then
+              echo "::error::Instance refresh ended as '$STATUS' — reverting tag pointer to $PREV_IMAGE_TAG"
+              aws ssm put-parameter --name "$IMAGE_TAG_PARAM" --type String \
+                --value "$PREV_IMAGE_TAG" --overwrite >/dev/null
+              exit 1
+            fi
+            echo "Deploy succeeded (instance refresh): $TAG"
+            exit 0
+          fi
+
+          # ── Path B: no ASG — in-place deploy to tagged instances via SSM ────
+          echo "No ASG '$ASG_NAME'; deploying in place to instances tagged App=$APP_TAG"
+          PARAMS="$(jq -n --arg tag "$TAG" '{commands: [("/opt/ultraviris/deploy.sh " + $tag)]}')"
+          CMD_ID="$(aws ssm send-command \
+            --document-name AWS-RunShellScript \
+            --comment "Deploy ultraviris $TAG" \
+            --targets "Key=tag:App,Values=$APP_TAG" \
+            --parameters "$PARAMS" \
+            --query Command.CommandId --output text)"
+          echo "SSM CommandId: $CMD_ID"
+
+          for _ in $(seq 1 90); do
+            sleep 10
+            STATUSES="$(aws ssm list-command-invocations --command-id "$CMD_ID" \
+              --query 'CommandInvocations[].Status' --output text || true)"
+            echo "  invocations: ${STATUSES:-<pending>}"
+            [ -z "$STATUSES" ] && continue
+            echo "$STATUSES" | grep -qiE 'Pending|InProgress|Delayed' && continue
+            break
+          done
+
+          TOTAL="$(aws ssm list-command-invocations --command-id "$CMD_ID" \
+            --query 'length(CommandInvocations)' --output text)"
+          if [ "$TOTAL" = "0" ]; then
+            echo "::error::No running instances tagged App=$APP_TAG were found."
+            exit 1
+          fi
+
+          FAILED=0
+          for IID in $(aws ssm list-command-invocations --command-id "$CMD_ID" \
+            --query 'CommandInvocations[].InstanceId' --output text); do
+            ST="$(aws ssm get-command-invocation --command-id "$CMD_ID" \
+              --instance-id "$IID" --query 'Status' --output text)"
+            echo "── $IID ($ST) ── stdout ──"
+            aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" \
+              --query 'StandardOutputContent' --output text || true
+            if [ "$ST" != "Success" ]; then
+              FAILED=1
+              echo "── $IID stderr ──"
+              aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" \
+                --query 'StandardErrorContent' --output text || true
+            fi
+          done
+          if [ "$FAILED" != "0" ]; then
+            echo "::error::Deploy failed on one or more instances; reverting tag pointer."
+            aws ssm put-parameter --name "$IMAGE_TAG_PARAM" --type String \
+              --value "$PREV_IMAGE_TAG" --overwrite >/dev/null
+            exit 1
+          fi
+          echo "Deploy succeeded (in-place SSM): $TAG"
