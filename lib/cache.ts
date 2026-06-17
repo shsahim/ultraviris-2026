@@ -6,7 +6,7 @@ interface Entry<T> {
 }
 
 // Module-level (per server process) cache. Survives across requests and is
-// warmed at startup via instrumentation.ts.
+// warmed on first DB connection via lib/db.ts → lib/warm.ts.
 const store = new Map<string, Entry<unknown>>();
 const inflight = new Map<string, Promise<unknown>>();
 

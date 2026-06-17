@@ -3,13 +3,19 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
-  checkPassword,
-  createSession,
   destroySession,
+  getSessionUsername,
   isAuthed,
+  login,
 } from "@/lib/auth";
 import {
+  changePassword,
+  createUser,
+  deleteUser,
+} from "@/lib/admin-users";
+import {
   createTableLike,
+  deleteRow,
   ensureProjectEntry,
   getActiveColumn,
   getColumns,
@@ -18,8 +24,8 @@ import {
   setActive,
   slugifyTableName,
   updateRow,
-  type ColumnMeta,
 } from "@/lib/admin-db";
+import type { ColumnMeta } from "@/lib/admin-types";
 import { invalidateAll } from "@/lib/cache";
 
 const PROJECTS_TABLE = "active_projects";
@@ -33,17 +39,86 @@ export async function loginAction(
   _prev: FormState,
   formData: FormData
 ): Promise<FormState> {
+  const username = String(formData.get("username") ?? "").trim();
   const password = String(formData.get("password") ?? "");
-  if (!checkPassword(password)) {
-    return { error: "Incorrect password." };
+  if (!username || !password) {
+    return { error: "Enter a username and password." };
   }
-  await createSession();
+  let ok: boolean;
+  try {
+    ok = await login(username, password);
+  } catch {
+    return { error: "Sign-in is temporarily unavailable (database error)." };
+  }
+  if (!ok) {
+    return { error: "Incorrect username or password." };
+  }
   redirect("/admin");
 }
 
 export async function logoutAction(): Promise<void> {
   await destroySession();
   redirect("/");
+}
+
+// ── Admin user management ────────────────────────────────────────────────────
+
+export async function createUserAction(
+  _prev: FormState,
+  formData: FormData
+): Promise<FormState> {
+  try {
+    await requireAuth();
+    const username = String(formData.get("username") ?? "").trim();
+    const password = String(formData.get("password") ?? "");
+    await createUser(username, password);
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Failed to create user.",
+    };
+  }
+}
+
+export async function changePasswordAction(
+  _prev: FormState,
+  formData: FormData
+): Promise<FormState> {
+  try {
+    await requireAuth();
+    const username = String(formData.get("username") ?? "").trim();
+    const password = String(formData.get("password") ?? "");
+    await changePassword(username, password);
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error ? error.message : "Failed to change password.",
+    };
+  }
+}
+
+export async function deleteUserAction(
+  _prev: FormState,
+  formData: FormData
+): Promise<FormState> {
+  try {
+    await requireAuth();
+    const username = String(formData.get("username") ?? "").trim();
+    const current = await getSessionUsername();
+    if (current && current === username) {
+      return { error: "You can't delete the account you're signed in as." };
+    }
+    await deleteUser(username);
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Failed to delete user.",
+    };
+  }
 }
 
 // Builds a clean data object from submitted form fields, applying NULL for
@@ -143,6 +218,32 @@ export async function addEntryAction(
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Failed to add entry.",
+    };
+  }
+}
+
+// Deletes a single row identified by table + primary-key value. Used by the
+// "broken images" cleanup tool to remove DB rows whose files are missing.
+export async function deleteImageRowAction(
+  _prev: FormState,
+  formData: FormData
+): Promise<FormState> {
+  try {
+    await requireAuth();
+    const table = String(formData.get("__table") ?? "");
+    const id = String(formData.get("__id") ?? "");
+    const columns = await getColumns(table);
+    const primaryKey = getPrimaryKey(columns);
+    if (!primaryKey) {
+      return { error: "This table has no primary key, so it can't be cleaned up." };
+    }
+    await deleteRow(table, primaryKey, id);
+    invalidateAll();
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Failed to delete row.",
     };
   }
 }

@@ -1,8 +1,17 @@
+import type { Metadata } from "next";
 import Nav from "../components/Nav";
 import Footer from "../components/Footer";
 import { getAboutEntries, type AboutEntry } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Resume",
+  description:
+    "Resume and CV of Natalie-Rose Nathan — fine artist, video editor and " +
+    "producer, dancer, and musician in Los Angeles. BFA, Otis College of Art and Design.",
+  alternates: { canonical: "/resume" },
+};
 
 const MONTHS = [
   "January",

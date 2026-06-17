@@ -1,15 +1,20 @@
 import Nav from "./components/Nav";
 import Footer from "./components/Footer";
+import FeaturedImage from "./components/FeaturedImage";
 import { getHomeImages } from "@/lib/data";
+import { shuffleInPlace } from "@/lib/shuffle";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const images = await getHomeImages();
-  const row =
-    images.length > 0
-      ? images[Math.floor(Math.random() * images.length)]
-      : null;
+  // Shuffle so the featured image varies, then let the client show the first
+  // that actually loads (skipping any missing from S3).
+  const candidates = shuffleInPlace([...images]).map((img) => ({
+    id: img.id,
+    src: img.src,
+    alt: `brain_juice #${img.id}`,
+  }));
 
   return (
     <main
@@ -30,24 +35,7 @@ export default async function Home() {
           gap: "1rem",
         }}
       >
-        {!row && (
-          <p style={{ fontSize: "0.9rem", color: "#777777" }}>
-            No active images found.
-          </p>
-        )}
-        {row && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={row.src}
-            alt={`brain_juice #${row.id}`}
-            style={{
-              maxWidth: "100%",
-              maxHeight: "75vh",
-              height: "auto",
-              objectFit: "contain",
-            }}
-          />
-        )}
+        <FeaturedImage images={candidates} />
       </section>
       <Footer />
     </main>

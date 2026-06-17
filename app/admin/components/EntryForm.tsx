@@ -7,7 +7,7 @@ import {
   type FormState,
 } from "../actions";
 import ImageUploadField from "./ImageUploadField";
-import type { ColumnMeta } from "@/lib/admin-db";
+import type { ColumnMeta } from "@/lib/admin-types";
 
 const initialState: FormState = {};
 

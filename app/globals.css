@@ -312,6 +312,53 @@ b {
   }
 }
 
+/* ---------- Site header / nav ---------- */
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+  flex-wrap: wrap;
+}
+
+.site-brand {
+  color: #000000;
+  text-decoration: none;
+}
+
+.site-title {
+  font-size: 1.65rem;
+  font-weight: 400;
+}
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  font-size: 1.15rem;
+}
+
+.site-nav-link {
+  color: #000000;
+  text-decoration: none;
+}
+
+@media (max-width: 640px) {
+  .site-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.85rem;
+  }
+  .site-title {
+    font-size: 1.4rem;
+  }
+  .site-nav {
+    gap: 1.5rem;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+}
+
 /* ---------- Work dropdown ---------- */
 .work-dropdown {
   position: relative;
@@ -380,10 +427,13 @@ b {
   color: #999999;
 }
 
-@media (max-width: 520px) {
+@media (max-width: 640px) {
+  /* On mobile the nav is left-aligned, so anchor the menu to the left and cap
+     its width so it can never run off either edge of the viewport. */
   .work-menu {
-    left: auto;
-    right: 0;
+    left: 0;
+    right: auto;
+    max-width: calc(100vw - 4rem);
   }
 }
 
@@ -435,6 +485,7 @@ b {
 }
 
 /* ---------- Admin ---------- */
+/* Admin uses a system sans-serif UI font; the public gallery stays Times New Roman. */
 .admin-main {
   min-height: 100vh;
   padding: 2rem;
@@ -443,6 +494,51 @@ b {
   display: flex;
   flex-direction: column;
   gap: 2rem;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+}
+
+/* Undo the site-wide non-bold heading rule inside admin. */
+.admin-main strong,
+.admin-main b {
+  font-weight: 600;
+}
+
+.admin-main h1.admin-title {
+  font-weight: 700;
+}
+
+.admin-main h2.admin-subtitle,
+.admin-main h3.admin-subtitle,
+.admin-main h3.admin-health-tables-title {
+  font-weight: 600;
+}
+
+.admin-main code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+  background: #f5f5f5;
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+}
+
+/* Centered login screen with footer pinned to the bottom. */
+.admin-main--guest {
+  justify-content: flex-start;
+}
+
+.admin-main--guest .admin-login {
+  flex: 1;
+  margin: 0 auto;
+  width: 100%;
+  max-width: 360px;
+  justify-content: center;
+}
+
+.admin-main--guest > footer {
+  margin-top: 0;
+  flex-shrink: 0;
+  width: 100%;
 }
 
 .admin-header {
@@ -518,10 +614,16 @@ b {
 .admin-health-card {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.35rem;
   padding: 0.9rem 1rem;
   border: 1px solid #eeeeee;
   border-radius: 12px;
+  min-width: 0;
+}
+
+.admin-health-card > strong {
+  font-size: 1rem;
+  font-weight: 600;
 }
 
 .admin-health-card-head {
@@ -587,6 +689,7 @@ b {
   cursor: pointer;
   font-weight: 600;
   color: #8a0b0b;
+  list-style-position: outside;
 }
 
 .admin-broken-table {
@@ -595,6 +698,22 @@ b {
 
 .admin-broken-table td {
   word-break: break-all;
+}
+
+.admin-broken-help {
+  margin-top: 0.5rem;
+}
+
+.admin-broken-delete {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.admin-broken-delete .admin-button {
+  padding: 0.35rem 0.8rem;
+  font-size: 0.8rem;
 }
 
 .admin-field {
@@ -666,6 +785,19 @@ b {
   color: #000000;
   text-decoration: none;
   display: inline-block;
+}
+
+.admin-button--danger {
+  background: #ffffff;
+  color: #b3261e;
+  border-color: #e6c2c2;
+}
+
+.admin-button--danger:hover {
+  opacity: 1;
+  background: #b3261e;
+  color: #ffffff;
+  border-color: #b3261e;
 }
 
 .admin-button--small {
@@ -770,7 +902,7 @@ b {
 
 .admin-login {
   max-width: 360px;
-  margin: 12vh auto 0;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -871,4 +1003,30 @@ b {
 .admin-upload-help {
   font-size: 0.78rem;
   margin-top: 0.1rem;
+}
+
+@media (max-width: 640px) {
+  .admin-main {
+    padding: 1.25rem;
+    gap: 1.5rem;
+  }
+
+  .admin-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .admin-health-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-section-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .admin-section-header .admin-button {
+    align-self: flex-start;
+  }
 }

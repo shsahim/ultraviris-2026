@@ -6,37 +6,16 @@ export default async function Nav() {
   const projects = await getActiveProjects();
 
   return (
-    <header
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: "2rem",
-        flexWrap: "wrap",
-      }}
-    >
-      <Link href="/" style={{ color: "#000000", textDecoration: "none" }}>
-        <h1 style={{ fontSize: "1.65rem", fontWeight: 400 }}>Natalie R Nathan</h1>
+    <header className="site-header">
+      <Link href="/" className="site-brand">
+        <h1 className="site-title">Natalie R Nathan</h1>
       </Link>
-      <nav
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "2rem",
-          fontSize: "1.15rem",
-        }}
-      >
+      <nav className="site-nav">
         <WorkDropdown projects={projects} />
-        <Link
-          href="/resume"
-          style={{ color: "#000000", textDecoration: "none" }}
-        >
+        <Link href="/resume" className="site-nav-link">
           resume
         </Link>
-        <Link
-          href="/contact"
-          style={{ color: "#000000", textDecoration: "none" }}
-        >
+        <Link href="/contact" className="site-nav-link">
           contact
         </Link>
       </nav>

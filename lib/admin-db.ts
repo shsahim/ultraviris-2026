@@ -1,15 +1,8 @@
 import "server-only";
 import { query } from "@/lib/db";
+import type { ColumnMeta, Row } from "@/lib/admin-types";
 
-export interface ColumnMeta {
-  name: string;
-  dataType: string;
-  nullable: boolean;
-  isPrimaryKey: boolean;
-  isAutoIncrement: boolean;
-}
-
-export type Row = Record<string, unknown>;
+export type { ColumnMeta, Row } from "@/lib/admin-types";
 
 /** Backtick-escapes a SQL identifier. Only ever used on schema-validated names. */
 export function escapeId(identifier: string): string {
@@ -211,6 +204,19 @@ export async function insertRow(
   await query(
     `INSERT INTO ${escapeId(table)} (${colClause}) VALUES (${placeholders})`,
     params
+  );
+}
+
+export async function deleteRow(
+  table: string,
+  primaryKey: string,
+  id: string
+): Promise<void> {
+  const columns = await getColumns(table);
+  assertValidColumns(columns, [primaryKey]);
+  await query(
+    `DELETE FROM ${escapeId(table)} WHERE ${escapeId(primaryKey)} = ?`,
+    [id]
   );
 }
 

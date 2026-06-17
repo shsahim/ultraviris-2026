@@ -5,7 +5,7 @@ import Link from "next/link";
 import { setActiveAction } from "../actions";
 import EntryForm from "./EntryForm";
 import { resolveImageSrc } from "@/lib/images";
-import type { ColumnMeta, Row } from "@/lib/admin-db";
+import type { ColumnMeta, Row } from "@/lib/admin-types";
 
 function isFileLocationColumn(name: string): boolean {
   return /file_location/i.test(name);
