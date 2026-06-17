@@ -5,9 +5,7 @@ import os from "node:os";
 import mysql from "mysql2/promise";
 
 declare global {
-  // eslint-disable-next-line no-var
   var _dbPoolPromise: Promise<mysql.Pool> | undefined;
-  // eslint-disable-next-line no-var
   var _cacheWarmStarted: boolean | undefined;
 }
 
@@ -58,7 +56,7 @@ function poolOptions(host: string, port: number): mysql.PoolOptions {
 // An explicit DB_USE_SSH_TUNNEL flag always wins; otherwise we tunnel only when
 // an SSH host is configured. In prod (inside the VPC) leave SSH_HOST unset so
 // the app connects directly to RDS via security groups.
-function useSshTunnel(): boolean {
+function sshTunnelEnabled(): boolean {
   const flag = process.env.DB_USE_SSH_TUNNEL;
   if (flag !== undefined && flag !== "") {
     return /^(1|true|yes|on)$/i.test(flag);
@@ -148,7 +146,7 @@ function scheduleWarmCache(): void {
 export function getPool(): Promise<mysql.Pool> {
   if (!global._dbPoolPromise) {
     scheduleWarmCache();
-    const create = useSshTunnel()
+    const create = sshTunnelEnabled()
       ? createTunneledPool()
       : Promise.resolve(createDirectPool());
     global._dbPoolPromise = create.catch((err) => {
