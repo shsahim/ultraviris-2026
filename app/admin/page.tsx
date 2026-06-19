@@ -10,6 +10,10 @@ import {
   type Row,
 } from "@/lib/admin-db";
 import { getSiteHealth } from "@/lib/health";
+import {
+  buildAdminImageSrcMap,
+  getImageBaseUrl,
+} from "@/lib/resolve-image";
 import { logoutAction } from "./actions";
 import Footer from "../components/Footer";
 import LoginForm from "./components/LoginForm";
@@ -70,6 +74,8 @@ export default async function AdminPage({
   let primaryKey: string | null = null;
   let activeColumn: string | null = null;
 
+  let imageSrcByRowId: Record<string, string> = {};
+
   if (selected) {
     columns = await getColumns(selected);
     primaryKey = getPrimaryKey(columns);
@@ -77,7 +83,10 @@ export default async function AdminPage({
     const data = await getRows(selected, PAGE_SIZE, (page - 1) * PAGE_SIZE);
     rows = data.rows;
     total = data.total;
+    imageSrcByRowId = await buildAdminImageSrcMap(rows, columns, primaryKey);
   }
+
+  const imageBaseUrl = getImageBaseUrl();
 
   const PROJECTS_TABLE = "active_projects";
   let projects: {
@@ -88,14 +97,22 @@ export default async function AdminPage({
     activeColumn: string | null;
   } | null = null;
 
+  let projectsImageSrcByRowId: Record<string, string> = {};
+
   if (health.ok && tables.includes(PROJECTS_TABLE)) {
     const projectColumns = await getColumns(PROJECTS_TABLE);
     const projectData = await getRows(PROJECTS_TABLE, PAGE_SIZE, 0);
+    const projectPrimaryKey = getPrimaryKey(projectColumns);
+    projectsImageSrcByRowId = await buildAdminImageSrcMap(
+      projectData.rows,
+      projectColumns,
+      projectPrimaryKey
+    );
     projects = {
       columns: projectColumns,
       rows: projectData.rows,
       total: projectData.total,
-      primaryKey: getPrimaryKey(projectColumns),
+      primaryKey: projectPrimaryKey,
       activeColumn: getActiveColumn(projectColumns),
     };
   }
@@ -266,6 +283,8 @@ export default async function AdminPage({
             pageSize={PAGE_SIZE}
             showTitle={false}
             embedded
+            imageBaseUrl={imageBaseUrl}
+            imageSrcByRowId={projectsImageSrcByRowId}
           />
         </section>
       )}
@@ -298,6 +317,8 @@ export default async function AdminPage({
           total={total}
           page={page}
           pageSize={PAGE_SIZE}
+          imageBaseUrl={imageBaseUrl}
+          imageSrcByRowId={imageSrcByRowId}
         />
       )}
       <Footer />

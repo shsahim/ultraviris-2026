@@ -8,16 +8,29 @@ export default function ImageUploadField({
   fieldName,
   label,
   initialValue,
+  imageBaseUrl = "",
+  initialPreviewSrc,
 }: {
   table: string;
   fieldName: string;
   label: string;
   initialValue: string;
+  imageBaseUrl?: string;
+  initialPreviewSrc?: string;
 }) {
   const inputId = useId();
   const [location, setLocation] = useState(initialValue ?? "");
+  const [previewSrc, setPreviewSrc] = useState(initialPreviewSrc ?? "");
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
+
+  const base = imageBaseUrl || undefined;
+
+  function previewUrl(storedLocation: string, resolved?: string): string {
+    if (resolved) return resolved;
+    if (!storedLocation) return "";
+    return resolveImageSrc(storedLocation, base);
+  }
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -39,12 +52,15 @@ export default function ImageUploadField({
         throw new Error(data.error ?? "Upload failed.");
       }
       setLocation(data.location);
+      setPreviewSrc(previewUrl(data.location));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed.");
     } finally {
       setUploading(false);
     }
   }
+
+  const displaySrc = previewSrc || previewUrl(location);
 
   return (
     <div className="admin-field">
@@ -70,10 +86,10 @@ export default function ImageUploadField({
         )}
       </div>
 
-      {location && (
+      {displaySrc && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={resolveImageSrc(location)}
+          src={displaySrc}
           alt="preview"
           className="admin-upload-preview"
         />

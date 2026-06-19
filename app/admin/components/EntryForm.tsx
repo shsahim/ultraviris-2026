@@ -34,6 +34,8 @@ export default function EntryForm({
   activeColumn,
   primaryKey,
   row,
+  imageBaseUrl = "",
+  initialPreviewSrc,
   onDone,
 }: {
   mode: "add" | "edit";
@@ -42,6 +44,8 @@ export default function EntryForm({
   activeColumn: string | null;
   primaryKey: string | null;
   row?: Record<string, unknown>;
+  imageBaseUrl?: string;
+  initialPreviewSrc?: string;
   onDone: () => void;
 }) {
   const action = mode === "add" ? addEntryAction : updateEntryAction;
@@ -80,6 +84,10 @@ export default function EntryForm({
               fieldName={fieldName}
               label={labelText}
               initialValue={stringValue}
+              imageBaseUrl={imageBaseUrl}
+              initialPreviewSrc={
+                /file_location/i.test(column.name) ? initialPreviewSrc : undefined
+              }
             />
           );
         }

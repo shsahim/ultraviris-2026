@@ -28,6 +28,8 @@ export default function TableManager({
   pageSize,
   showTitle = true,
   embedded = false,
+  imageBaseUrl = "",
+  imageSrcByRowId = {},
 }: {
   table: string;
   columns: ColumnMeta[];
@@ -39,6 +41,8 @@ export default function TableManager({
   pageSize: number;
   showTitle?: boolean;
   embedded?: boolean;
+  imageBaseUrl?: string;
+  imageSrcByRowId?: Record<string, string>;
 }) {
   const [editing, setEditing] = useState<Row | null>(null);
   const [adding, setAdding] = useState(false);
@@ -84,6 +88,7 @@ export default function TableManager({
             columns={columns}
             activeColumn={activeColumn}
             primaryKey={primaryKey}
+            imageBaseUrl={imageBaseUrl}
             onDone={() => setAdding(false)}
           />
         </div>
@@ -101,6 +106,12 @@ export default function TableManager({
             activeColumn={activeColumn}
             primaryKey={primaryKey}
             row={editing}
+            imageBaseUrl={imageBaseUrl}
+            initialPreviewSrc={
+              primaryKey
+                ? imageSrcByRowId[String(editing[primaryKey])]
+                : undefined
+            }
             onDone={() => setEditing(null)}
           />
         </div>
@@ -168,11 +179,15 @@ export default function TableManager({
                   {columns.map((c) => {
                     const value = row[c.name];
                     if (isFileLocationColumn(c.name) && value) {
+                      const rowId = primaryKey ? String(row[primaryKey]) : String(i);
+                      const src =
+                        imageSrcByRowId[rowId] ??
+                        resolveImageSrc(String(value), imageBaseUrl || undefined);
                       return (
                         <td key={c.name}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
-                            src={resolveImageSrc(String(value))}
+                            src={src}
                             alt={String(value)}
                             className="admin-thumb"
                           />

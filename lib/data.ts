@@ -1,66 +1,8 @@
 import "server-only";
-import { existsSync } from "node:fs";
-import path from "node:path";
 import { query } from "@/lib/db";
 import { assertValidTable, escapeId } from "@/lib/admin-db";
-import {
-  normalizeFileLocation,
-  resolveFileLocationWithFallback,
-} from "@/lib/image-resolve";
-import { resolveRemoteImagePath } from "@/lib/image-probe";
+import { resolveImage } from "@/lib/resolve-image";
 import { cached } from "@/lib/cache";
-import { isS3Enabled, listS3ImageKeys } from "@/lib/storage";
-
-const PUBLIC_DIR = path.join(process.cwd(), "public");
-
-function remoteRelativePath(fileLocation: string, baseUrl: string): string | null {
-  const trimmed = (fileLocation ?? "").trim();
-  if (/^https?:\/\//i.test(trimmed)) {
-    const prefix = `${baseUrl}/`;
-    return trimmed.startsWith(prefix) ? trimmed.slice(prefix.length) : null;
-  }
-  return normalizeFileLocation(fileLocation);
-}
-
-// Resolves a stored File_Location to a browser src, tolerating extension
-// mismatches (e.g. the DB says ".png" but the file in public/ or S3 is ".jpg")
-// by falling back to a sibling with the same basename.
-async function resolveImage(fileLocation: string): Promise<string> {
-  const trimmed = (fileLocation ?? "").trim();
-  const baseUrl = process.env.IMAGE_BASE_URL?.replace(/\/+$/, "");
-
-  if (baseUrl) {
-    const relative = remoteRelativePath(fileLocation, baseUrl);
-    if (relative === null) {
-      return trimmed;
-    }
-
-    if (isS3Enabled()) {
-      const keys = await cached("s3:image-keys", listS3ImageKeys);
-      if (keys.size > 0) {
-        const resolved = resolveFileLocationWithFallback(relative, (p) =>
-          keys.has(p)
-        );
-        if (keys.has(resolved)) {
-          return `${baseUrl}/${resolved}`;
-        }
-      }
-    }
-
-    const resolved = await resolveRemoteImagePath(baseUrl, relative);
-    return `${baseUrl}/${resolved}`;
-  }
-
-  if (/^https?:\/\//i.test(trimmed)) {
-    return trimmed;
-  }
-
-  const relative = normalizeFileLocation(fileLocation);
-  const resolved = resolveFileLocationWithFallback(relative, (p) =>
-    existsSync(path.join(PUBLIC_DIR, p))
-  );
-  return resolved ? `/${resolved}` : "/";
-}
 
 export interface Project {
   id: number;
