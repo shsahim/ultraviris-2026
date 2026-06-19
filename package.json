@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "fix-file-locations-s3": "tsx scripts/fix-file-locations-s3.mts",
+    "fix-active-projects": "tsx scripts/fix-active-projects.mts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1056.0",
@@ -28,6 +30,7 @@
     "eslint": "^9.39.4",
     "eslint-config-next": "^15.5.19",
     "png-to-ico": "^3.0.1",
+    "tsx": "^4.22.4",
     "typescript": "^5.7.3",
     "vitest": "^2.1.9"
   }

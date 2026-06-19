@@ -15,7 +15,7 @@ for (const line of readFileSync(".env.local", "utf8").split("\n")) {
   if (m) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
 }
 
-const { query } = await import("../lib/db");
+const { query } = await import("./lib/script-db");
 
 const PUBLIC = path.join(process.cwd(), "public");
 const EXTS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
