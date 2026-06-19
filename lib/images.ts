@@ -9,7 +9,10 @@
  * (e.g. "https://my-bucket.s3.amazonaws.com") and the same stored values will
  * resolve to full S3 URLs — no other code changes required.
  */
-export function resolveImageSrc(fileLocation: string): string {
+export function resolveImageSrc(
+  fileLocation: string,
+  baseUrlOverride?: string
+): string {
   const value = (fileLocation ?? "").trim();
 
   // Already an absolute URL (e.g. a public S3/CDN link) — use as-is.
@@ -20,7 +23,11 @@ export function resolveImageSrc(fileLocation: string): string {
   // Normalize to a path without a leading slash.
   const relative = value.replace(/^\.?\/+/, "");
 
-  const baseUrl = process.env.IMAGE_BASE_URL?.replace(/\/+$/, "");
+  const baseUrl = (
+    baseUrlOverride ??
+    process.env.NEXT_PUBLIC_IMAGE_BASE_URL ??
+    process.env.IMAGE_BASE_URL
+  )?.replace(/\/+$/, "");
   if (baseUrl) {
     return `${baseUrl}/${relative}`;
   }

@@ -26,7 +26,7 @@ AWS_MOUNT       := $(if $(wildcard $(AWS_DIR)/credentials),-v "$(AWS_DIR):/home/
 
 .PHONY: help version install test lint typecheck build buildx-setup ecr-login \
         build-arm64 push run run-local stop logs ecr-create check-s3 \
-        launch-ec2 setup-aws setup-alb-asg dns dns-create-role ship deploy
+        fix-file-locations-s3 fix-active-projects launch-ec2 setup-aws setup-alb-asg dns dns-create-role ship deploy
 
 # EC2 tag the deploy targets/pipeline aim at, and the on-instance deploy script.
 APP_TAG         ?= ultraviris
@@ -117,6 +117,19 @@ logs: ## Tail container logs
 
 check-s3: ## Verify S3 images are publicly reachable (optionally KEY=images/...)
 	@./scripts/check-s3.sh $(KEY)
+
+fix-file-locations-s3: ## Align DB File_Location with S3 (dry-run default; APPLY=1 to write, TABLE=name)
+	@APPLY="$(APPLY)" TABLE="$(TABLE)"; \
+	ARGS=""; \
+	[ "$$APPLY" = "1" ] && ARGS="$$ARGS --apply"; \
+	[ -n "$$TABLE" ] && ARGS="$$ARGS --table $$TABLE"; \
+	npm run fix-file-locations-s3 -- $$ARGS
+
+fix-active-projects: ## Fix active_projects table_name links (dry-run default; APPLY=1 to write)
+	@APPLY="$(APPLY)"; \
+	ARGS=""; \
+	[ "$$APPLY" = "1" ] && ARGS="$$ARGS --apply"; \
+	npm run fix-active-projects -- $$ARGS
 
 launch-ec2: ## Provision a single tagged EC2 instance (simple/no ALB; see scripts/launch-ec2.sh)
 	@./scripts/launch-ec2.sh

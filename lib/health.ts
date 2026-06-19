@@ -9,6 +9,7 @@ import {
 import { HeadBucketCommand } from "@aws-sdk/client-s3";
 import { query } from "@/lib/db";
 import { escapeId, listTables } from "@/lib/admin-db";
+import { imageExistsWithFallback } from "@/lib/image-resolve";
 import { getS3Client, isS3Enabled, listS3ImageKeys } from "@/lib/storage";
 
 export interface TableCount {
@@ -65,37 +66,16 @@ export interface SiteHealth {
 }
 
 const PUBLIC_DIR = path.join(process.cwd(), "public");
-const IMAGE_EXT_FALLBACKS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
 const MAX_BROKEN_LISTED = 50;
 
-// Mirrors lib/data.ts resolveImage: true if the file exists locally, allowing
-// a sibling with the same basename but a different image extension.
 function localImageExists(fileLocation: string): boolean {
-  const relative = fileLocation.replace(/^\.?\/+/, "").trim();
-  if (!relative) return false;
-  if (existsSync(path.join(PUBLIC_DIR, relative))) return true;
-
-  const ext = path.extname(relative);
-  const base = relative.slice(0, relative.length - ext.length);
-  return IMAGE_EXT_FALLBACKS.some(
-    (alt) =>
-      alt !== ext.toLowerCase() &&
-      existsSync(path.join(PUBLIC_DIR, base + alt))
+  return imageExistsWithFallback(fileLocation, (relative) =>
+    existsSync(path.join(PUBLIC_DIR, relative))
   );
 }
 
-// S3 equivalent of localImageExists: a File_Location maps to an object key
-// (sans leading slash); allow a sibling key with a different image extension.
 function s3KeyExists(keys: Set<string>, fileLocation: string): boolean {
-  const key = fileLocation.replace(/^\.?\/+/, "").trim();
-  if (!key) return false;
-  if (keys.has(key)) return true;
-
-  const ext = path.extname(key);
-  const base = key.slice(0, key.length - ext.length);
-  return IMAGE_EXT_FALLBACKS.some(
-    (alt) => alt !== ext.toLowerCase() && keys.has(base + alt)
-  );
+  return imageExistsWithFallback(fileLocation, (relative) => keys.has(relative));
 }
 
 // Caps a slow external call so the health page never hangs on it.
