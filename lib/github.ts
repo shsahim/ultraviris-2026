@@ -116,6 +116,147 @@ export async function createIssue({
   return { number: data.number, url: data.html_url };
 }
 
+export interface IssueLabel {
+  name: string;
+  color: string;
+}
+
+export interface IssueSummary {
+  number: number;
+  title: string;
+  url: string;
+  body: string;
+  author: string;
+  createdAt: string;
+  updatedAt: string;
+  comments: number;
+  labels: IssueLabel[];
+}
+
+export interface IssueComment {
+  id: number;
+  author: string;
+  body: string;
+  url: string;
+  createdAt: string;
+}
+
+interface RawIssue {
+  number: number;
+  title: string;
+  html_url: string;
+  body: string | null;
+  user: { login: string } | null;
+  created_at: string;
+  updated_at: string;
+  comments: number;
+  labels: Array<{ name: string; color: string } | string>;
+  pull_request?: unknown;
+}
+
+interface RawComment {
+  id: number;
+  body: string | null;
+  html_url: string;
+  user: { login: string } | null;
+  created_at: string;
+}
+
+/**
+ * Lists open issues for the configured repo. Pull requests (which the GitHub
+ * issues endpoint also returns) are filtered out. Throws a friendly error on
+ * failure.
+ */
+export async function listOpenIssues(limit = 30): Promise<IssueSummary[]> {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) {
+    throw new Error(
+      "GitHub access is not configured (GITHUB_TOKEN is not set)."
+    );
+  }
+
+  const repo = getIssueRepo();
+  const perPage = Math.min(Math.max(limit, 1), 100);
+
+  let res: Response;
+  try {
+    res = await fetch(
+      `${GITHUB_API}/repos/${repo}/issues?state=open&per_page=${perPage}&sort=updated&direction=desc`,
+      {
+        headers: authHeaders(token),
+        signal: AbortSignal.timeout(10_000),
+        cache: "no-store",
+      }
+    );
+  } catch {
+    throw new Error("Could not reach GitHub. Please try again.");
+  }
+
+  if (!res.ok) {
+    throw new Error(describeError(res.status, "", repo));
+  }
+
+  const data = (await res.json()) as RawIssue[];
+  return data
+    .filter((issue) => !issue.pull_request)
+    .map((issue) => ({
+      number: issue.number,
+      title: issue.title,
+      url: issue.html_url,
+      body: issue.body ?? "",
+      author: issue.user?.login ?? "unknown",
+      createdAt: issue.created_at,
+      updatedAt: issue.updated_at,
+      comments: issue.comments,
+      labels: issue.labels.map((label) =>
+        typeof label === "string"
+          ? { name: label, color: "888888" }
+          : { name: label.name, color: label.color }
+      ),
+    }));
+}
+
+/** Fetches the comments for a single issue. Throws a friendly error on failure. */
+export async function getIssueComments(
+  issueNumber: number
+): Promise<IssueComment[]> {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) {
+    throw new Error(
+      "GitHub access is not configured (GITHUB_TOKEN is not set)."
+    );
+  }
+
+  const repo = getIssueRepo();
+
+  let res: Response;
+  try {
+    res = await fetch(
+      `${GITHUB_API}/repos/${repo}/issues/${issueNumber}/comments?per_page=100`,
+      {
+        headers: authHeaders(token),
+        signal: AbortSignal.timeout(10_000),
+        cache: "no-store",
+      }
+    );
+  } catch {
+    throw new Error("Could not reach GitHub. Please try again.");
+  }
+
+  if (!res.ok) {
+    throw new Error(describeError(res.status, "", repo));
+  }
+
+  const data = (await res.json()) as RawComment[];
+  return data.map((comment) => ({
+    id: comment.id,
+    author: comment.user?.login ?? "unknown",
+    body: comment.body ?? "",
+    url: comment.html_url,
+    createdAt: comment.created_at,
+  }));
+}
+
 /**
  * Lightweight token/repo health probe for the admin Site Health panel. Confirms
  * the token can see the repo and whether issues are enabled, without creating

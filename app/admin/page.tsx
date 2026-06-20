@@ -10,7 +10,12 @@ import {
   type Row,
 } from "@/lib/admin-db";
 import { getSiteHealth } from "@/lib/health";
-import { getIssueRepo, isGitHubIssuesConfigured } from "@/lib/github";
+import {
+  getIssueRepo,
+  isGitHubIssuesConfigured,
+  listOpenIssues,
+  type IssueSummary,
+} from "@/lib/github";
 import {
   buildAdminImageSrcMap,
   getImageBaseUrl,
@@ -25,6 +30,7 @@ import TableManager from "./components/TableManager";
 import CreateTableForm from "./components/CreateTableForm";
 import Toast from "./components/Toast";
 import IssueReporter from "./components/IssueReporter";
+import ActiveIssues from "./components/ActiveIssues";
 
 function formatUptime(seconds: number): string {
   const d = Math.floor(seconds / 86400);
@@ -104,6 +110,18 @@ export default async function AdminPage({
 
   const imageBaseUrl = getImageBaseUrl();
 
+  const githubConfigured = isGitHubIssuesConfigured();
+  let openIssues: IssueSummary[] = [];
+  let issuesError: string | undefined;
+  if (githubConfigured) {
+    try {
+      openIssues = await listOpenIssues();
+    } catch (error) {
+      issuesError =
+        error instanceof Error ? error.message : "Failed to load issues.";
+    }
+  }
+
   const PROJECTS_TABLE = "active_projects";
   let projects: {
     columns: ColumnMeta[];
@@ -160,6 +178,9 @@ export default async function AdminPage({
             Projects
           </a>
         )}
+        <a href="#issues" className="admin-nav-link">
+          Issues
+        </a>
         <a href="#data" className="admin-nav-link">
           Manage data
         </a>
@@ -415,6 +436,15 @@ export default async function AdminPage({
           />
         </section>
       )}
+
+      <div id="issues" className="admin-anchor-wrap">
+        <ActiveIssues
+          configured={githubConfigured}
+          repo={getIssueRepo()}
+          issues={openIssues}
+          error={issuesError}
+        />
+      </div>
 
       <section className="admin-section" id="data">
         <h2 className="admin-subtitle">Manage data</h2>
