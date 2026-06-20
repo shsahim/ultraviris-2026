@@ -33,7 +33,7 @@ ENV_SECRET        ?= ultraviris/env
 
 .PHONY: help version install test lint typecheck build buildx-setup ecr-login \
         build-arm64 push run run-local stop logs ecr-create check-s3 \
-        github-token-local sync-secrets \
+        github-token-local sync-secrets push-github-env \
         fix-file-locations-s3 fix-active-projects launch-ec2 setup-aws setup-alb-asg dns dns-create-role ship deploy
 
 # EC2 tag the deploy targets/pipeline aim at, and the on-instance deploy script.
@@ -133,6 +133,9 @@ github-token-local: ## Sync GITHUB_TOKEN (via gh) + GITHUB_ISSUE_REPO into .env.
 
 sync-secrets: ## Preview the .env.local -> $(ENV_SECRET) secret sync (dry-run; validates, no writes)
 	@AWS_REGION="$(AWS_REGION)" ENV_SECRET="$(ENV_SECRET)" npm run --silent sync-secrets
+
+push-github-env: ## Push .env.local into APP_* GitHub Secrets/Variables (source for the CI deploy)
+	@npm run --silent push-github-env
 
 check-s3: ## Verify S3 images are publicly reachable (optionally KEY=images/...)
 	@./scripts/check-s3.sh $(KEY)

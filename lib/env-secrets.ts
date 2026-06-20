@@ -52,6 +52,41 @@ export const STATIC_AWS_CRED_KEYS = [
 
 export const MIN_SESSION_SECRET_LENGTH = 32;
 
+// Keys that must never be pushed to GitHub or assembled from CI: local-only file
+// paths and static AWS credentials (production uses the instance IAM role).
+export const SKIP_PUSH_KEYS = [
+  "SSH_PRIVATE_KEY_PATH",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "NODE_ENV",
+] as const;
+
+// Connection identifiers that reveal infrastructure — stored as GitHub *secrets*
+// rather than plaintext *variables* even though they aren't passwords/tokens.
+export const INFRA_SECRET_KEYS = [
+  "MYSQL_HOST",
+  "MYSQL_USER",
+  "MYSQL_DATABASE",
+  "SSH_HOST",
+  "SSH_USER",
+] as const;
+
+export type EnvKeyClass = "secret" | "variable" | "skip";
+
+/**
+ * Classifies an env key for the curated GitHub Secrets/Variables sync used by CI.
+ * Sensitive values (and infra identifiers) become repo *secrets*; everything else
+ * becomes a plaintext *variable*; local-only keys are skipped. Callers store the
+ * results under an APP_ prefix because GitHub reserves the GITHUB_ prefix.
+ */
+export function classifyEnvKey(key: string): EnvKeyClass {
+  if ((SKIP_PUSH_KEYS as readonly string[]).includes(key)) return "skip";
+  if (isSensitiveKey(key) || (INFRA_SECRET_KEYS as readonly string[]).includes(key)) {
+    return "secret";
+  }
+  return "variable";
+}
+
 const LOCALHOST_RE = /(localhost|127\.0\.0\.1|::1)/i;
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 const SENSITIVE_RE = /(TOKEN|SECRET|PASSWORD|PASSPHRASE|_KEY$|_KEY_|AWS_SECRET)/i;

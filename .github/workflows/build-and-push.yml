@@ -19,6 +19,8 @@ env:
   # ASG + SSM image-tag pointer used by the zero-downtime instance-refresh deploy.
   ASG_NAME: ultraviris-asg
   IMAGE_TAG_PARAM: /ultraviris/image-tag
+  # Secrets Manager secret holding the app's runtime env (dotenv-formatted).
+  ENV_SECRET: ultraviris/env
 
 jobs:
   # ── Gate everything on the same checks that run on PRs ──────────────────────
@@ -93,124 +95,57 @@ jobs:
           vuln-type: os,library
           severity: CRITICAL,HIGH
 
-  # ── Deploy the freshly-pushed tag to the EC2 instance(s) via SSM ─────────────
+  # ── Sync secrets, then roll out the freshly-pushed tag — mirrors `make ship` ─
   deploy:
     needs: build
     # Only auto-deploy from the default branch; tag builds just publish to ECR.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Pin the deployed image tag
+      # Rebuild the production env from the repo's APP_* Secrets + Variables. This
+      # is the CI equivalent of the local .env.local that `make ship` reads.
+      - name: Assemble production env from repo Secrets + Variables
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+          VARS_JSON: ${{ toJSON(vars) }}
+        run: ./scripts/ci-assemble-env.sh > ci.env
+
+      # Validate the merged result and write it to Secrets Manager (the previous
+      # version is retained so the rollout step can roll it back on failure).
+      - name: Validate + sync secrets to Secrets Manager
+        env:
+          ENV_FILE: ci.env
+        run: npm run --silent sync-secrets -- --apply
+
+      # Zero-downtime rollout (ASG instance refresh, or in-place SSM fallback).
+      # Instances re-read the secret at boot, so the refresh applies both the new
+      # image and the new env together. rollout.sh reverts the image-tag pointer
+      # on failure; we additionally roll the secret back here.
+      - name: Roll out (with secret rollback on failure)
         env:
           TAG: ${{ needs.build.outputs.image_tag }}
         run: |
-          set -euo pipefail
-          # Record the previous value so we can revert on a failed rollout, then
-          # point new launches (instance refresh, scale-out) at this exact sha.
-          PREV="$(aws ssm get-parameter --name "$IMAGE_TAG_PARAM" \
-            --query 'Parameter.Value' --output text 2>/dev/null || echo latest)"
-          echo "PREV_IMAGE_TAG=$PREV" >> "$GITHUB_ENV"
-          aws ssm put-parameter --name "$IMAGE_TAG_PARAM" --type String \
-            --value "$TAG" --overwrite >/dev/null
-          echo "Pinned $IMAGE_TAG_PARAM = $TAG (was $PREV)"
-
-      - name: Deploy (ASG instance refresh, or in-place SSM fallback)
-        env:
-          TAG: ${{ needs.build.outputs.image_tag }}
-        run: |
-          set -euo pipefail
-
-          ASG_EXISTS="$(aws autoscaling describe-auto-scaling-groups \
-            --auto-scaling-group-names "$ASG_NAME" \
-            --query 'AutoScalingGroups[0].AutoScalingGroupName' --output text 2>/dev/null || echo None)"
-
-          # ── Path A: zero-downtime rolling replacement via instance refresh ──
-          if [ "$ASG_EXISTS" = "$ASG_NAME" ]; then
-            echo "Starting instance refresh on $ASG_NAME for tag $TAG"
-            REFRESH_ID="$(aws autoscaling start-instance-refresh \
-              --auto-scaling-group-name "$ASG_NAME" \
-              --preferences 'MinHealthyPercentage=100,InstanceWarmup=90' \
-              --query InstanceRefreshId --output text)"
-            echo "InstanceRefreshId: $REFRESH_ID"
-
-            STATUS=Pending
-            for _ in $(seq 1 120); do
-              sleep 15
-              STATUS="$(aws autoscaling describe-instance-refreshes \
-                --auto-scaling-group-name "$ASG_NAME" --instance-refresh-ids "$REFRESH_ID" \
-                --query 'InstanceRefreshes[0].Status' --output text)"
-              PCT="$(aws autoscaling describe-instance-refreshes \
-                --auto-scaling-group-name "$ASG_NAME" --instance-refresh-ids "$REFRESH_ID" \
-                --query 'InstanceRefreshes[0].PercentageComplete' --output text)"
-              echo "  refresh: $STATUS (${PCT:-0}%)"
-              case "$STATUS" in
-                Successful|Failed|Cancelled|RollbackFailed|RollbackSuccessful) break ;;
-              esac
-            done
-
-            if [ "$STATUS" != "Successful" ]; then
-              echo "::error::Instance refresh ended as '$STATUS' — reverting tag pointer to $PREV_IMAGE_TAG"
-              aws ssm put-parameter --name "$IMAGE_TAG_PARAM" --type String \
-                --value "$PREV_IMAGE_TAG" --overwrite >/dev/null
-              exit 1
-            fi
-            echo "Deploy succeeded (instance refresh): $TAG"
-            exit 0
-          fi
-
-          # ── Path B: no ASG — in-place deploy to tagged instances via SSM ────
-          echo "No ASG '$ASG_NAME'; deploying in place to instances tagged App=$APP_TAG"
-          PARAMS="$(jq -n --arg tag "$TAG" '{commands: [("/opt/ultraviris/deploy.sh " + $tag)]}')"
-          CMD_ID="$(aws ssm send-command \
-            --document-name AWS-RunShellScript \
-            --comment "Deploy ultraviris $TAG" \
-            --targets "Key=tag:App,Values=$APP_TAG" \
-            --parameters "$PARAMS" \
-            --query Command.CommandId --output text)"
-          echo "SSM CommandId: $CMD_ID"
-
-          for _ in $(seq 1 90); do
-            sleep 10
-            STATUSES="$(aws ssm list-command-invocations --command-id "$CMD_ID" \
-              --query 'CommandInvocations[].Status' --output text || true)"
-            echo "  invocations: ${STATUSES:-<pending>}"
-            [ -z "$STATUSES" ] && continue
-            echo "$STATUSES" | grep -qiE 'Pending|InProgress|Delayed' && continue
-            break
-          done
-
-          TOTAL="$(aws ssm list-command-invocations --command-id "$CMD_ID" \
-            --query 'length(CommandInvocations)' --output text)"
-          if [ "$TOTAL" = "0" ]; then
-            echo "::error::No running instances tagged App=$APP_TAG were found."
+          if ./scripts/rollout.sh "$TAG"; then
+            echo "Deploy succeeded: $TAG"
+          else
+            echo "::error::Rollout failed — rolling the secret back to its previous version"
+            npm run --silent sync-secrets -- --rollback || true
             exit 1
           fi
 
-          FAILED=0
-          for IID in $(aws ssm list-command-invocations --command-id "$CMD_ID" \
-            --query 'CommandInvocations[].InstanceId' --output text); do
-            ST="$(aws ssm get-command-invocation --command-id "$CMD_ID" \
-              --instance-id "$IID" --query 'Status' --output text)"
-            echo "── $IID ($ST) ── stdout ──"
-            aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" \
-              --query 'StandardOutputContent' --output text || true
-            if [ "$ST" != "Success" ]; then
-              FAILED=1
-              echo "── $IID stderr ──"
-              aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" \
-                --query 'StandardErrorContent' --output text || true
-            fi
-          done
-          if [ "$FAILED" != "0" ]; then
-            echo "::error::Deploy failed on one or more instances; reverting tag pointer."
-            aws ssm put-parameter --name "$IMAGE_TAG_PARAM" --type String \
-              --value "$PREV_IMAGE_TAG" --overwrite >/dev/null
-            exit 1
-          fi
-          echo "Deploy succeeded (in-place SSM): $TAG"
+      - name: Clean up assembled env
+        if: always()
+        run: rm -f ci.env

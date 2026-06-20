@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  classifyEnvKey,
   diffEnv,
   mergeEnv,
   parseEnv,
@@ -114,6 +115,56 @@ describe("redact", () => {
     expect(redact("GITHUB_TOKEN", "abc")).toMatch(/\(3\)$/);
     expect(redact("MYSQL_HOST", "rds.example.com")).toBe("rds.example.com");
     expect(redact("S3_BUCKET", "")).toBe("(empty)");
+  });
+});
+
+describe("classifyEnvKey", () => {
+  it("treats passwords/secrets/tokens/passphrases as secrets", () => {
+    for (const k of [
+      "MYSQL_PASSWORD",
+      "ADMIN_PASSWORD",
+      "ADMIN_SESSION_SECRET",
+      "HEALTH_CHECK_SECRET",
+      "GITHUB_TOKEN",
+      "SSH_PASSPHRASE",
+    ]) {
+      expect(classifyEnvKey(k)).toBe("secret");
+    }
+  });
+
+  it("treats infra connection identifiers as secrets", () => {
+    for (const k of ["MYSQL_HOST", "MYSQL_USER", "MYSQL_DATABASE", "SSH_HOST", "SSH_USER"]) {
+      expect(classifyEnvKey(k)).toBe("secret");
+    }
+  });
+
+  it("treats non-sensitive config as variables", () => {
+    for (const k of [
+      "IMAGE_BASE_URL",
+      "S3_BUCKET",
+      "GITHUB_ISSUE_REPO",
+      "NEXT_PUBLIC_SITE_URL",
+      "ADMIN_USERNAME",
+      "SES_FROM_EMAIL",
+      "CONTACT_TO_EMAIL",
+      "MYSQL_PORT",
+      "SSH_PORT",
+      "DB_USE_SSH_TUNNEL",
+      "IMAGE_AUTOHEAL",
+    ]) {
+      expect(classifyEnvKey(k)).toBe("variable");
+    }
+  });
+
+  it("skips local-only and instance-role keys", () => {
+    for (const k of [
+      "SSH_PRIVATE_KEY_PATH",
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "NODE_ENV",
+    ]) {
+      expect(classifyEnvKey(k)).toBe("skip");
+    }
   });
 });
 
