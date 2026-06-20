@@ -94,7 +94,12 @@ export default async function AdminPage({
     const data = await getRows(selected, PAGE_SIZE, (page - 1) * PAGE_SIZE);
     rows = data.rows;
     total = data.total;
-    imageSrcByRowId = await buildAdminImageSrcMap(rows, columns, primaryKey);
+    imageSrcByRowId = await buildAdminImageSrcMap(
+      rows,
+      columns,
+      primaryKey,
+      selected
+    );
   }
 
   const imageBaseUrl = getImageBaseUrl();
@@ -117,7 +122,8 @@ export default async function AdminPage({
     projectsImageSrcByRowId = await buildAdminImageSrcMap(
       projectData.rows,
       projectColumns,
-      projectPrimaryKey
+      projectPrimaryKey,
+      PROJECTS_TABLE
     );
     projects = {
       columns: projectColumns,
