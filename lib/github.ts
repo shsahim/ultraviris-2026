@@ -41,6 +41,44 @@ function authHeaders(token: string): HeadersInit {
   };
 }
 
+// Default colors for the labels the issue reporter can apply, so newly-created
+// labels look sensible in GitHub. Falls back to a neutral gray for anything else.
+const KNOWN_LABEL_COLORS: Record<string, string> = {
+  bug: "d73a4a",
+  "feature request": "a2eeef",
+  enhancement: "a2eeef",
+};
+
+// GitHub rejects an issue create if a label doesn't already exist in the repo.
+// This makes the label idempotently: it returns quietly if it already exists,
+// creates it if missing, and stays best-effort (never throws) so a labeling
+// hiccup can't block filing the issue itself.
+async function ensureLabel(
+  repo: string,
+  token: string,
+  name: string
+): Promise<void> {
+  try {
+    const res = await fetch(
+      `${GITHUB_API}/repos/${repo}/labels/${encodeURIComponent(name)}`,
+      { headers: authHeaders(token), signal: AbortSignal.timeout(8_000) }
+    );
+    if (res.ok || res.status !== 404) return;
+    await fetch(`${GITHUB_API}/repos/${repo}/labels`, {
+      method: "POST",
+      headers: { ...authHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        color: KNOWN_LABEL_COLORS[name.toLowerCase()] ?? "ededed",
+      }),
+      signal: AbortSignal.timeout(8_000),
+    });
+  } catch {
+    // Best effort — if we can't verify/create the label, fall through and let
+    // the issue creation proceed (GitHub will simply drop an unknown label).
+  }
+}
+
 function describeError(status: number, detail: string, repo: string): string {
   if (status === 401) {
     return "GitHub rejected the token (401). Check that GITHUB_TOKEN is valid.";
@@ -80,6 +118,14 @@ export async function createIssue({
   }
   if (body.length > MAX_BODY_LENGTH) {
     throw new Error(`Body is too long (max ${MAX_BODY_LENGTH} characters).`);
+  }
+
+  // Make sure each requested label exists first, otherwise GitHub rejects the
+  // create. Done sequentially and best-effort so it never blocks filing.
+  if (labels && labels.length > 0) {
+    for (const name of labels) {
+      await ensureLabel(repo, token, name);
+    }
   }
 
   let res: Response;

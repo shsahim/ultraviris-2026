@@ -315,6 +315,14 @@ export async function setActiveAction(formData: FormData): Promise<void> {
 
 // ── GitHub issue reporting (admin-only) ──────────────────────────────────────
 
+// Allowed issue-type selections from the reporter dropdown, mapped to the
+// GitHub label that gets applied. Kept here (server side) so the value is
+// validated against an allowlist before it reaches GitHub.
+const ISSUE_TYPE_LABELS: Record<string, string> = {
+  bug: "bug",
+  feature: "feature request",
+};
+
 // Opens a GitHub issue populated with the admin-supplied title and (markdown)
 // body. Requires an authenticated admin; the body is appended with a small
 // attribution footer noting which admin filed it.
@@ -336,11 +344,15 @@ export async function createIssueAction(
     const reporter = (await getSessionUsername()) ?? "an admin";
     const footer = `\n\n---\n_Filed from the admin dashboard by **${reporter}**._`;
 
-    // Note: we intentionally don't attach a label — GitHub rejects the request
-    // if the label doesn't already exist in the repo.
+    // Map the dropdown selection to a GitHub label. createIssue() ensures the
+    // label exists before applying it.
+    const issueType = String(formData.get("issueType") ?? "");
+    const labelName = ISSUE_TYPE_LABELS[issueType];
+
     const issue = await createIssue({
       title,
       body: body + footer,
+      ...(labelName ? { labels: [labelName] } : {}),
     });
     return { ok: true, issueUrl: issue.url, issueNumber: issue.number };
   } catch (error) {
