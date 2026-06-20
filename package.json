@@ -9,8 +9,12 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install --with-deps",
     "fix-file-locations-s3": "tsx scripts/fix-file-locations-s3.mts",
     "fix-active-projects": "tsx scripts/fix-active-projects.mts",
+    "sync-secrets": "tsx scripts/sync-secrets.mts",
+    "push-github-env": "tsx scripts/push-github-env.mts",
     "env:export": "node scripts/sync-dev-env.mjs export --include-aws --include-gh",
     "env:push-gh": "node scripts/sync-dev-env.mjs push-gh --include-aws",
     "env:pull-gh": "node scripts/sync-dev-env.mjs pull-gh --include-aws"
@@ -22,10 +26,13 @@
     "next": "^15.1.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-markdown": "^9.1.0",
+    "remark-gfm": "^4.0.1",
     "server-only": "^0.0.1",
     "ssh2": "^1.17.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.0",
     "@types/node": "^22.10.7",
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",

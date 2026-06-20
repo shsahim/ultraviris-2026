@@ -20,9 +20,11 @@ autoscaled fleet, so production must use S3.
 - [ ] **Migrate existing local images** in `public/images/**` into the bucket,
       preserving the same relative paths.
 
-> The local `.jpg`/`.png` extension-fallback in `lib/data.ts` only works for
-> local files. Once on S3, stored `File_Location` extensions must match the
-> real objects — see [AWS setup](aws-setup.md#data-fix-scripts).
+> `lib/resolve-image.ts` fuzzy-matches stored `File_Location` values to real
+> objects (exact → extension swap → same-folder basename → unique prefix) for
+> **both** local files and S3, and with `IMAGE_AUTOHEAL` on it writes the
+> corrected value back to the DB. A bulk fix script is still available — see
+> [AWS setup](aws-setup.md#data-fix-scripts).
 
 ## 2. Amazon SES (email)
 
@@ -75,6 +77,10 @@ autoscaled fleet, so production must use S3.
       that path by user-data).
 - [ ] Rename the secrets? Update `ENV_SECRET` / `SSH_KEY_SECRET` in
       `scripts/userdata.sh`.
+- [ ] You don't hand-edit `ultraviris/env`: `make ship` (from `.env.local`) and
+      the CI deploy (from `APP_*` repo Secrets/Variables) validate and sync it
+      automatically, non-destructively. Run `make push-github-env` once to seed
+      the CI source. See [deployment](deployment.md#secrets).
 
 ## 7. Scheduled health checks in production
 
@@ -90,14 +96,21 @@ autoscaled fleet, so production must use S3.
 - [ ] Generate a strong `ADMIN_PASSWORD` and a long random `ADMIN_SESSION_SECRET`
       and `HEALTH_CHECK_SECRET` for production (do not reuse dev values).
 - [ ] Ensure `.env.local` and `*.pem` are never committed (already gitignored).
+- [ ] (Optional) Set `GITHUB_TOKEN` (fine-grained PAT, Issues: Read & write) and
+      `GITHUB_ISSUE_REPO` to enable the admin "Report an issue" popout.
 
 ## 9. Database content fix (extensions)
 
 Some `File_Location` values in the DB end in `.png` while the real files are
-`.jpg` (the gallery compensates locally, but S3 won't).
+`.jpg` (the resolver now compensates for both local and S3 at runtime, and
+self-heals the DB when `IMAGE_AUTOHEAL` is on).
 
 - [ ] Run a one-time script to correct `File_Location` extensions to match the
       actual objects before/at the S3 migration. See [AWS setup](aws-setup.md#data-fix-scripts).
+
+> With `IMAGE_AUTOHEAL` on, the resolver also corrects these at runtime (fuzzy
+> match + write-back) as pages load, so the bulk script is now optional cleanup
+> rather than a hard blocker.
 
 ## 10. Runtime / housekeeping (nice to have)
 

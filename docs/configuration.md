@@ -63,16 +63,56 @@ secret); when `admin_users` is empty, an initial account is seeded from them:
 
 Features:
 
-- **Site Health** – database connection status and per-table row counts.
+- **Site Health** – an expanded panel: database connection + per-table row
+  counts, a public **image URL probe** (HEAD-checks a real S3 object via
+  `IMAGE_BASE_URL`, distinguishing "bucket not public" from "key not found"),
+  **GitHub** connectivity for the issue reporter, a **configuration** audit
+  (presence-only — never prints secret values), and **runtime** info (uptime,
+  memory, Node version, deployed `IMAGE_TAG`/`GIT_COMMIT`).
 - **Admin users** – list accounts, add users, change passwords, and delete users
   (you can't delete the last account or the one you're signed in as).
 - **Manage data** – pick any table, browse rows (paginated), edit existing
   entries, add new entries, and flip an `is_active` column between
   Active/Inactive with one click.
+- **Report an issue** – a popout (admin-only) that opens a GitHub issue against
+  `GITHUB_ISSUE_REPO` with a Markdown body + live preview. Only shown when
+  `GITHUB_TOKEN` is set.
 
 The data editor is schema-driven (it reads `information_schema`), so it works
 for every table automatically. Table and column names are validated against the
 live schema before any query runs.
+
+### GitHub issue reporter
+
+Set these to enable the admin "Report an issue" popout (leave `GITHUB_TOKEN`
+blank to hide the feature):
+
+- `GITHUB_TOKEN` – a fine-grained PAT with **Issues: Read and write** on the
+  target repo. Never exposed to the client; used only by the server action.
+- `GITHUB_ISSUE_REPO` – `owner/repo` issues are opened against (defaults to
+  `shsahim/ultraviris-2026`).
+
+Locally, `make build` / `make run` / `make run-local` populate `GITHUB_TOKEN`
+in `.env.local` from your `gh` CLI (`make github-token-local`). In production the
+value flows through the secret sync — see [deployment](deployment.md#secrets).
+
+## Image storage (local or S3)
+
+Stored `File_Location` values resolve to image URLs via `lib/resolve-image.ts`:
+
+- `IMAGE_BASE_URL` – base URL for hosted images (e.g.
+  `https://<bucket>.s3.<region>.amazonaws.com` or a CDN). Leave blank to serve
+  from the local `public/` directory.
+- `S3_BUCKET` – enables admin uploads to S3 (`lib/storage.ts`); blank stores
+  uploads under `public/` for local dev.
+- `IMAGE_AUTOHEAL` – on by default. When the resolver fuzzy-matches a
+  `File_Location` (wrong/missing extension, truncated name) to a real object, it
+  writes the corrected value back to the DB so the next load is exact. Set to
+  `0`/`false` to disable.
+
+The resolver matches in increasing leniency: exact key → sibling extension →
+same-folder same-basename → unique prefix. This works for **both** local files
+and S3 objects (uploads of broken images are also filtered out client-side).
 
 ## Contact form email (Amazon SES)
 

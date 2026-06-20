@@ -5,9 +5,12 @@ The app builds to a self-contained Docker image (`output: "standalone"`).
 | File | Role |
 |------|------|
 | `Dockerfile` | Multi-stage build, non-root, baked-in `HEALTHCHECK` |
-| `Makefile` | `make push`, `make ship`, `make deploy` — run `make help` for all targets |
+| `Makefile` | `make push`, `make ship`, `make deploy`, `make sync-secrets` — run `make help` for all targets |
+| `.github/workflows/branch-ci.yml` | **branch-CI** PR gate: tsc, lint, unit tests + cross-browser E2E (see below) |
 | `.github/workflows/test.yml` | Type-check, lint, and unit tests on every PR |
-| `.github/workflows/build-and-push.yml` | CI/CD pipeline (see below) |
+| `.github/workflows/build-and-push.yml` | CI/CD pipeline: build → sync secrets → deploy (see below) |
+| `scripts/sync-secrets.mts` | Validate + sync `.env.local`/CI env into the `ultraviris/env` secret |
+| `scripts/ci-assemble-env.sh` | CI: rebuild the prod env from `APP_*` GitHub Secrets/Variables |
 | `scripts/launch-ec2.sh` | Provisions a single Graviton instance |
 | `scripts/userdata.sh` | EC2 user-data: Docker, secrets, first deploy, alert cron |
 | `scripts/deploy.sh` | On-instance rollout: pull ECR tag, restart, health-check, rollback |
@@ -17,8 +20,16 @@ The app builds to a self-contained Docker image (`output: "standalone"`).
 ```bash
 make build           # build a local image for your host arch
 make run             # runs with --env-file .env.local on :3000
+make run-local       # same, but mounts the SSH key so the DB tunnel works
 npm test             # unit tests
+npm run build && npm run test:e2e:install && npm run test:e2e   # Playwright E2E
 ```
+
+> `make build` / `make run` / `make run-local` first run `make github-token-local`,
+> which writes `GITHUB_TOKEN` into `.env.local` from your authenticated `gh` CLI
+> so the admin issue reporter works locally. Use **`make run-local`** (not
+> `make run`) when `.env.local` sets `SSH_HOST` — only it mounts the key needed
+> for the DB tunnel.
 
 ## Continuous deployment (merge → CI → ECR → EC2)
 
@@ -27,16 +38,54 @@ On every push to `main`, `build-and-push.yml` runs three chained jobs:
 1. **test** – `tsc`, `lint`, `npm test`. Everything below is gated on this passing.
 2. **build** – builds the `linux/arm64` image and pushes it to ECR tagged with the
    git short SHA **and** `latest` (immutable SHA tag is what gets deployed).
-3. **deploy** – pins the deployed sha in SSM Parameter Store (`/ultraviris/image-tag`),
-   then performs a **zero-downtime ASG instance refresh** (`MinHealthyPercentage=100`):
-   new instances launch, pull that sha, and must pass the ALB health check before old
-   ones are drained. If the refresh fails the job reverts the tag pointer. When no ASG
-   exists (e.g. the simple single-instance setup), it falls back to an in-place **SSM
-   Run Command** that runs `/opt/ultraviris/deploy.sh <sha>` on instances tagged
-   `App=ultraviris` (with per-instance health-check + rollback).
+3. **deploy** – **mirrors `make ship`**: it rebuilds the production env from the
+   repo's `APP_*` GitHub Secrets/Variables (`scripts/ci-assemble-env.sh`),
+   validates it, and writes it to the `ultraviris/env` Secrets Manager secret
+   (`sync-secrets --apply`). It then pins the sha in SSM (`/ultraviris/image-tag`)
+   and runs a **zero-downtime ASG instance refresh** (`MinHealthyPercentage=100`):
+   new instances launch, re-read the secret + pull that sha, and must pass the ALB
+   health check before old ones drain. If the rollout fails it reverts the tag
+   pointer **and rolls the secret back** to its previous version. With no ASG it
+   falls back to an in-place **SSM Run Command** running
+   `/opt/ultraviris/deploy.sh <sha>` on instances tagged `App=ultraviris`.
 
 All AWS access is via GitHub OIDC (the `AWS_ROLE_ARN` repo secret) — no static keys.
 Tag pushes (`v*`) publish to ECR but do **not** auto-deploy.
+
+### Secrets
+
+The app's runtime env lives in the `ultraviris/env` Secrets Manager secret, which
+instances read at boot (`scripts/userdata.sh`). Both local and CD paths keep it
+in sync from a dotenv source, **non-destructively** and **validated**:
+
+- **`make ship`** reads your `.env.local`.
+- **CI deploy** reads the repo's `APP_*` Secrets/Variables (the CI equivalent of
+  `.env.local`). Populate/refresh them with `make push-github-env` (needs `gh`).
+  Keys are stored under an `APP_` prefix because GitHub reserves `GITHUB_`;
+  sensitive keys + infra identifiers become **Secrets**, the rest **Variables**;
+  local-only keys (`SSH_PRIVATE_KEY_PATH`, static `AWS_*` creds) are skipped.
+
+`scripts/sync-secrets.mts` merges the source over the current secret (existing
+keys are never dropped; an empty local value never blanks a non-empty prod one),
+runs `lib/env-secrets.ts` validation (required keys present, `ADMIN_SESSION_SECRET`
+length, no `localhost` in `MYSQL_HOST`/`SSH_HOST`/`IMAGE_BASE_URL`, etc.), and
+aborts the deploy if validation fails. Preview anytime with `make sync-secrets`
+(dry-run, redacted diff).
+
+### branch-CI (PR gate)
+
+`branch-ci.yml` runs on **pull requests targeting `main`** and is the merge gate:
+
+- **tests** – `tsc --noEmit`, `eslint`, full `vitest` suite.
+- **e2e** – builds the app, then runs **Playwright** across Desktop
+  Chrome/Firefox/Safari and Mobile Chrome/Safari, crawling every public page to
+  assert it renders and that internal links resolve (and external links aren't
+  dead). The HTML report is uploaded as an artifact.
+
+To actually block merges, add **`tests`** and **`e2e`** as **required status
+checks** in the `main` branch protection rule (Settings → Branches). No DB exists
+in CI, so the resilient data loaders return empty and pages still render their
+layout shell.
 
 **First-time setup:**
 
@@ -55,12 +104,16 @@ if an ASG exists, in-place SSM otherwise, with automatic revert of the SSM tag
 pointer on failure:
 
 ```bash
-make ship                        # build current commit, push to ECR, roll it out
+make ship                        # validate+sync secrets, build, push to ECR, roll it out
 make deploy TAG=<git-short-sha>  # roll out an already-pushed tag (or TAG=latest)
+make sync-secrets                # dry-run: preview the .env.local -> ultraviris/env diff
 ```
 
-`make ship` is the full local CD path that bypasses GitHub entirely; `make deploy`
-just re-points/rolls out an existing image (handy for rollbacks).
+`make ship` is the full local CD path that bypasses GitHub entirely: it validates
+and syncs `.env.local` into `ultraviris/env`, builds + pushes, rolls out, and
+rolls the secret back if the deploy is unhealthy. `make deploy` just
+re-points/rolls out an existing image without touching secrets (handy for
+rollbacks).
 
 ## Production topology: ALB + Auto Scaling Group + HTTPS
 

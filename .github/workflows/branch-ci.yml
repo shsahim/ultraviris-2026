@@ -1,0 +1,66 @@
+name: branch-CI
+
+# Gate for merging into main. Add this workflow's jobs as REQUIRED status checks
+# in the branch protection rule for `main` so a PR can't merge until they pass.
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: branch-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Type-check, lint, and all unit tests ────────────────────────────────────
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type-check
+        run: npx tsc --noEmit
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests
+        run: npm test
+
+  # ── Build the app and verify it renders across desktop + mobile browsers ─────
+  e2e:
+    runs-on: ubuntu-latest
+    env:
+      # Production server needs a session secret to boot; no DB exists in CI, so
+      # the resilient data loaders return empty and pages still render.
+      ADMIN_SESSION_SECRET: ci-playwright-dummy-session-secret-0123456789
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Build
+        run: npm run build
+
+      - name: E2E (render + link checks, all desktop + mobile browsers)
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

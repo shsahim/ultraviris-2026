@@ -10,6 +10,7 @@ import {
   type Row,
 } from "@/lib/admin-db";
 import { getSiteHealth } from "@/lib/health";
+import { getIssueRepo, isGitHubIssuesConfigured } from "@/lib/github";
 import {
   buildAdminImageSrcMap,
   getImageBaseUrl,
@@ -23,6 +24,16 @@ import TableSelect from "./components/TableSelect";
 import TableManager from "./components/TableManager";
 import CreateTableForm from "./components/CreateTableForm";
 import Toast from "./components/Toast";
+import IssueReporter from "./components/IssueReporter";
+
+function formatUptime(seconds: number): string {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -83,7 +94,12 @@ export default async function AdminPage({
     const data = await getRows(selected, PAGE_SIZE, (page - 1) * PAGE_SIZE);
     rows = data.rows;
     total = data.total;
-    imageSrcByRowId = await buildAdminImageSrcMap(rows, columns, primaryKey);
+    imageSrcByRowId = await buildAdminImageSrcMap(
+      rows,
+      columns,
+      primaryKey,
+      selected
+    );
   }
 
   const imageBaseUrl = getImageBaseUrl();
@@ -106,7 +122,8 @@ export default async function AdminPage({
     projectsImageSrcByRowId = await buildAdminImageSrcMap(
       projectData.rows,
       projectColumns,
-      projectPrimaryKey
+      projectPrimaryKey,
+      PROJECTS_TABLE
     );
     projects = {
       columns: projectColumns,
@@ -131,7 +148,24 @@ export default async function AdminPage({
         </form>
       </header>
 
-      <section className="admin-section">
+      <nav className="admin-nav" aria-label="Admin sections">
+        <a href="#health" className="admin-nav-link">
+          Site Health
+        </a>
+        <a href="#users" className="admin-nav-link">
+          Users
+        </a>
+        {projects && (
+          <a href="#projects" className="admin-nav-link">
+            Projects
+          </a>
+        )}
+        <a href="#data" className="admin-nav-link">
+          Manage data
+        </a>
+      </nav>
+
+      <section className="admin-section" id="health">
         <h2 className="admin-subtitle">Site Health</h2>
 
         <div className="admin-health-cards">
@@ -231,6 +265,97 @@ export default async function AdminPage({
               </span>
             )}
           </div>
+
+          {health.publicImages.applicable && (
+            <div className="admin-health-card">
+              <div className="admin-health-card-head">
+                <span
+                  className={`admin-status-dot ${
+                    health.publicImages.ok
+                      ? "admin-status-dot--ok"
+                      : "admin-status-dot--bad"
+                  }`}
+                  aria-hidden
+                />
+                <span className="admin-health-card-title">Public image URLs</span>
+              </div>
+              <strong>
+                {health.publicImages.ok
+                  ? "Reachable"
+                  : health.publicImages.status
+                  ? `HTTP ${health.publicImages.status}`
+                  : "Unreachable"}
+              </strong>
+              <span className="admin-muted">{health.publicImages.message}</span>
+            </div>
+          )}
+
+          <div className="admin-health-card">
+            <div className="admin-health-card-head">
+              <span
+                className={`admin-status-dot ${
+                  !health.github.configured
+                    ? "admin-status-dot--warn"
+                    : health.github.ok
+                    ? "admin-status-dot--ok"
+                    : "admin-status-dot--bad"
+                }`}
+                aria-hidden
+              />
+              <span className="admin-health-card-title">GitHub issues</span>
+            </div>
+            <strong>
+              {!health.github.configured
+                ? "Not configured"
+                : health.github.ok
+                ? "Connected"
+                : "Error"}
+            </strong>
+            <span className="admin-muted">{health.github.message}</span>
+          </div>
+
+          <div className="admin-health-card">
+            <div className="admin-health-card-head">
+              <span
+                className={`admin-status-dot ${
+                  health.config.ok
+                    ? "admin-status-dot--ok"
+                    : "admin-status-dot--warn"
+                }`}
+                aria-hidden
+              />
+              <span className="admin-health-card-title">Configuration</span>
+            </div>
+            <strong>
+              {health.config.ok
+                ? "All required set"
+                : `${health.config.missingRequired.length} missing`}
+            </strong>
+            <span className="admin-muted">
+              {health.config.ok
+                ? `${health.config.vars.filter((v) => v.set).length} / ${
+                    health.config.vars.length
+                  } configured`
+                : `Missing: ${health.config.missingRequired.join(", ")}`}
+            </span>
+          </div>
+
+          <div className="admin-health-card">
+            <div className="admin-health-card-head">
+              <span className="admin-status-dot admin-status-dot--ok" aria-hidden />
+              <span className="admin-health-card-title">Runtime</span>
+            </div>
+            <strong>Up {formatUptime(health.runtime.uptimeSeconds)}</strong>
+            <span className="admin-muted">
+              {health.runtime.nodeVersion} · {health.runtime.environment} ·{" "}
+              {health.runtime.memoryRssMb} MB RSS
+            </span>
+            {health.runtime.version && (
+              <span className="admin-muted">
+                Version: {health.runtime.version}
+              </span>
+            )}
+          </div>
         </div>
 
         <BrokenImages
@@ -265,10 +390,12 @@ export default async function AdminPage({
         </p>
       </section>
 
-      <AdminUsers users={adminUsers} currentUser={currentUser} />
+      <div id="users" className="admin-anchor-wrap">
+        <AdminUsers users={adminUsers} currentUser={currentUser} />
+      </div>
 
       {projects && (
-        <section className="admin-section">
+        <section className="admin-section" id="projects">
           <h2 className="admin-subtitle admin-projects-title">
             Active Projects
           </h2>
@@ -289,7 +416,7 @@ export default async function AdminPage({
         </section>
       )}
 
-      <section className="admin-section">
+      <section className="admin-section" id="data">
         <h2 className="admin-subtitle">Manage data</h2>
         {!health.ok ? (
           <p className="admin-muted">
@@ -322,6 +449,11 @@ export default async function AdminPage({
         />
       )}
       <Footer />
+
+      <IssueReporter
+        configured={isGitHubIssuesConfigured()}
+        repo={getIssueRepo()}
+      />
     </main>
   );
 }

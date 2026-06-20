@@ -1,7 +1,8 @@
 import "server-only";
 import { query } from "@/lib/db";
 import { assertValidTable, escapeId } from "@/lib/admin-db";
-import { resolveImage } from "@/lib/resolve-image";
+import { resolveImageDetailed } from "@/lib/resolve-image";
+import { healFileLocation } from "@/lib/image-heal";
 import { cached } from "@/lib/cache";
 
 export interface Project {
@@ -66,10 +67,20 @@ export async function getGalleryImages(
       return Promise.all(
         rows.map(async (r) => {
           const file = (r.File_Location as string) ?? "";
+          const { src, correctedLocation } = await resolveImageDetailed(file);
+          if (correctedLocation && correctedLocation !== file) {
+            healFileLocation({
+              table: tableName,
+              idColumn: "id",
+              id: Number(r.id),
+              fileColumn: "File_Location",
+              corrected: correctedLocation,
+            });
+          }
           return {
             id: Number(r.id),
             title: (r.Title as string) ?? "",
-            src: await resolveImage(file),
+            src,
             description: (r.image_Description as string) ?? "",
             width: r.width != null ? Number(r.width) : null,
             height: r.height != null ? Number(r.height) : null,
@@ -104,10 +115,21 @@ export async function getHomeImages(): Promise<HomeImage[]> {
         "SELECT id, File_Location FROM brain_juice WHERE is_active = 1"
       );
       return Promise.all(
-        rows.map(async (r) => ({
-          id: r.id,
-          src: await resolveImage(r.File_Location),
-        }))
+        rows.map(async (r) => {
+          const { src, correctedLocation } = await resolveImageDetailed(
+            r.File_Location
+          );
+          if (correctedLocation && correctedLocation !== r.File_Location) {
+            healFileLocation({
+              table: "brain_juice",
+              idColumn: "id",
+              id: r.id,
+              fileColumn: "File_Location",
+              corrected: correctedLocation,
+            });
+          }
+          return { id: r.id, src };
+        })
       );
     });
   } catch {

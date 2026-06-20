@@ -153,3 +153,12 @@ scripts/aws-setup-outputs.env
 ultraviris-dev-bundle*
 .dev-bundle-staging-*
 .dev-bundle-import-*
+
+# CI-assembled production env (never commit)
+ci.env
+
+# Playwright
+playwright-report/
+test-results/
+/blob-report/
+.playwright/

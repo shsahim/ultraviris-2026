@@ -29,6 +29,7 @@ import {
 } from "@/lib/admin-db";
 import type { ColumnMeta } from "@/lib/admin-types";
 import { invalidateAll } from "@/lib/cache";
+import { createIssue } from "@/lib/github";
 
 const PROJECTS_TABLE = "active_projects";
 
@@ -38,6 +39,13 @@ const LOGIN_RATE_LIMIT = { limit: 10, windowMs: 15 * 60 * 1000 }; // 10 / 15 min
 export interface FormState {
   ok?: boolean;
   error?: string;
+}
+
+export interface IssueFormState {
+  ok?: boolean;
+  error?: string;
+  issueUrl?: string;
+  issueNumber?: number;
 }
 
 export async function loginAction(
@@ -299,4 +307,41 @@ export async function setActiveAction(formData: FormData): Promise<void> {
   await setActive(table, primaryKey, id, active);
   invalidateAll();
   revalidatePath("/admin");
+}
+
+// ── GitHub issue reporting (admin-only) ──────────────────────────────────────
+
+// Opens a GitHub issue populated with the admin-supplied title and (markdown)
+// body. Requires an authenticated admin; the body is appended with a small
+// attribution footer noting which admin filed it.
+export async function createIssueAction(
+  _prev: IssueFormState,
+  formData: FormData
+): Promise<IssueFormState> {
+  try {
+    await requireAuth();
+    const title = String(formData.get("title") ?? "").trim();
+    const body = String(formData.get("body") ?? "");
+    if (!title) {
+      return { error: "Please enter a title for the issue." };
+    }
+    if (!body.trim()) {
+      return { error: "Please enter a description." };
+    }
+
+    const reporter = (await getSessionUsername()) ?? "an admin";
+    const footer = `\n\n---\n_Filed from the admin dashboard by **${reporter}**._`;
+
+    // Note: we intentionally don't attach a label — GitHub rejects the request
+    // if the label doesn't already exist in the repo.
+    const issue = await createIssue({
+      title,
+      body: body + footer,
+    });
+    return { ok: true, issueUrl: issue.url, issueNumber: issue.number };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Failed to open issue.",
+    };
+  }
 }
