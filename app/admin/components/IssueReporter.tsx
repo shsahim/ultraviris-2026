@@ -9,6 +9,11 @@ const initial: IssueFormState = {};
 
 type Tab = "write" | "preview";
 
+const ISSUE_TYPES = [
+  { value: "bug", label: "Issue / Bug" },
+  { value: "feature", label: "Feature request" },
+];
+
 export default function IssueReporter({
   configured,
   repo,
@@ -19,6 +24,7 @@ export default function IssueReporter({
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("write");
   const [title, setTitle] = useState("");
+  const [issueType, setIssueType] = useState(ISSUE_TYPES[0].value);
   const [body, setBody] = useState("");
   const [state, action, pending] = useActionState(createIssueAction, initial);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -28,6 +34,7 @@ export default function IssueReporter({
     if (state.ok) {
       setTitle("");
       setBody("");
+      setIssueType(ISSUE_TYPES[0].value);
       setTab("write");
     }
   }, [state.ok]);
@@ -99,16 +106,31 @@ export default function IssueReporter({
             </div>
           ) : (
             <form action={action} className="issue-form">
-              <input
-                type="text"
-                name="title"
-                className="admin-input"
-                placeholder="Issue title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                maxLength={256}
-                required
-              />
+              <div className="issue-meta-row">
+                <input
+                  type="text"
+                  name="title"
+                  className="admin-input issue-title-input"
+                  placeholder="Issue title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  maxLength={256}
+                  required
+                />
+                <select
+                  name="issueType"
+                  className="admin-input issue-type-select"
+                  value={issueType}
+                  onChange={(e) => setIssueType(e.target.value)}
+                  aria-label="Issue type"
+                >
+                  {ISSUE_TYPES.map((type) => (
+                    <option key={type.value} value={type.value}>
+                      {type.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
               <div className="issue-tabs" role="tablist">
                 <button

@@ -41,6 +41,44 @@ function authHeaders(token: string): HeadersInit {
   };
 }
 
+// Default colors for the labels the issue reporter can apply, so newly-created
+// labels look sensible in GitHub. Falls back to a neutral gray for anything else.
+const KNOWN_LABEL_COLORS: Record<string, string> = {
+  bug: "d73a4a",
+  "feature request": "a2eeef",
+  enhancement: "a2eeef",
+};
+
+// GitHub rejects an issue create if a label doesn't already exist in the repo.
+// This makes the label idempotently: it returns quietly if it already exists,
+// creates it if missing, and stays best-effort (never throws) so a labeling
+// hiccup can't block filing the issue itself.
+async function ensureLabel(
+  repo: string,
+  token: string,
+  name: string
+): Promise<void> {
+  try {
+    const res = await fetch(
+      `${GITHUB_API}/repos/${repo}/labels/${encodeURIComponent(name)}`,
+      { headers: authHeaders(token), signal: AbortSignal.timeout(8_000) }
+    );
+    if (res.ok || res.status !== 404) return;
+    await fetch(`${GITHUB_API}/repos/${repo}/labels`, {
+      method: "POST",
+      headers: { ...authHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        color: KNOWN_LABEL_COLORS[name.toLowerCase()] ?? "ededed",
+      }),
+      signal: AbortSignal.timeout(8_000),
+    });
+  } catch {
+    // Best effort — if we can't verify/create the label, fall through and let
+    // the issue creation proceed (GitHub will simply drop an unknown label).
+  }
+}
+
 function describeError(status: number, detail: string, repo: string): string {
   if (status === 401) {
     return "GitHub rejected the token (401). Check that GITHUB_TOKEN is valid.";
@@ -80,6 +118,14 @@ export async function createIssue({
   }
   if (body.length > MAX_BODY_LENGTH) {
     throw new Error(`Body is too long (max ${MAX_BODY_LENGTH} characters).`);
+  }
+
+  // Make sure each requested label exists first, otherwise GitHub rejects the
+  // create. Done sequentially and best-effort so it never blocks filing.
+  if (labels && labels.length > 0) {
+    for (const name of labels) {
+      await ensureLabel(repo, token, name);
+    }
   }
 
   let res: Response;
@@ -146,6 +192,7 @@ interface RawIssue {
   title: string;
   html_url: string;
   body: string | null;
+  state: string;
   user: { login: string } | null;
   created_at: string;
   updated_at: string;
@@ -214,6 +261,81 @@ export async function listOpenIssues(limit = 30): Promise<IssueSummary[]> {
           : { name: label.name, color: label.color }
       ),
     }));
+}
+
+export interface IssueStats {
+  open: number;
+  closed: number;
+  inProgress: number;
+}
+
+// Detects a checked markdown task-list item (e.g. "- [x] done") anywhere in the
+// issue body. An open issue with at least one checked box is treated as
+// "in progress".
+const CHECKED_TASK_BOX = /^[ \t]*[-*]\s+\[[xX]\]/m;
+
+export function hasCheckedTaskBox(body: string | null): boolean {
+  return body ? CHECKED_TASK_BOX.test(body) : false;
+}
+
+/**
+ * Summarizes the configured repo's issues: how many are open, how many are
+ * closed, and how many open issues are "in progress" (their description has at
+ * least one checked checkbox). Pull requests are excluded. Throws a friendly
+ * error on failure.
+ */
+export async function getIssueStats(): Promise<IssueStats> {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) {
+    throw new Error(
+      "GitHub access is not configured (GITHUB_TOKEN is not set)."
+    );
+  }
+
+  const repo = getIssueRepo();
+  const perPage = 100;
+  let open = 0;
+  let closed = 0;
+  let inProgress = 0;
+
+  // Page through every issue (open + closed). Cap the loop so a huge repo can't
+  // hang the admin page; 10 pages = up to 1000 issues.
+  for (let page = 1; page <= 10; page++) {
+    let res: Response;
+    try {
+      res = await fetch(
+        `${GITHUB_API}/repos/${repo}/issues?state=all&per_page=${perPage}&page=${page}`,
+        {
+          headers: authHeaders(token),
+          signal: AbortSignal.timeout(10_000),
+          cache: "no-store",
+        }
+      );
+    } catch {
+      throw new Error("Could not reach GitHub. Please try again.");
+    }
+
+    if (!res.ok) {
+      throw new Error(describeError(res.status, "", repo));
+    }
+
+    const data = (await res.json()) as RawIssue[];
+    if (data.length === 0) break;
+
+    for (const issue of data) {
+      if (issue.pull_request) continue;
+      if (issue.state === "closed") {
+        closed++;
+      } else {
+        open++;
+        if (hasCheckedTaskBox(issue.body)) inProgress++;
+      }
+    }
+
+    if (data.length < perPage) break;
+  }
+
+  return { open, closed, inProgress };
 }
 
 /** Fetches the comments for a single issue. Throws a friendly error on failure. */

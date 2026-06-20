@@ -12,8 +12,10 @@ import {
 import { getSiteHealth } from "@/lib/health";
 import {
   getIssueRepo,
+  getIssueStats,
   isGitHubIssuesConfigured,
   listOpenIssues,
+  type IssueStats,
   type IssueSummary,
 } from "@/lib/github";
 import {
@@ -113,9 +115,13 @@ export default async function AdminPage({
   const githubConfigured = isGitHubIssuesConfigured();
   let openIssues: IssueSummary[] = [];
   let issuesError: string | undefined;
+  let issueStats: IssueStats | null = null;
   if (githubConfigured) {
     try {
-      openIssues = await listOpenIssues();
+      [openIssues, issueStats] = await Promise.all([
+        listOpenIssues(100),
+        getIssueStats(),
+      ]);
     } catch (error) {
       issuesError =
         error instanceof Error ? error.message : "Failed to load issues.";
@@ -188,6 +194,29 @@ export default async function AdminPage({
 
       <section className="admin-section" id="health">
         <h2 className="admin-subtitle">Site Health</h2>
+
+        {issueStats && (
+          <div className="admin-issue-stats">
+            <div className="admin-issue-stat">
+              <span className="admin-issue-stat-value">
+                {issueStats.open}
+              </span>
+              <span className="admin-issue-stat-label">Issues open</span>
+            </div>
+            <div className="admin-issue-stat">
+              <span className="admin-issue-stat-value">
+                {issueStats.inProgress}
+              </span>
+              <span className="admin-issue-stat-label">In progress</span>
+            </div>
+            <div className="admin-issue-stat">
+              <span className="admin-issue-stat-value">
+                {issueStats.closed}
+              </span>
+              <span className="admin-issue-stat-label">Issues closed</span>
+            </div>
+          </div>
+        )}
 
         <div className="admin-health-cards">
           <div className="admin-health-card">
