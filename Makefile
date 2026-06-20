@@ -98,6 +98,11 @@ push: buildx-setup ecr-login ecr-create ## Build ARM64 and push to ECR (version 
 		--push .
 
 run: ## Run the local image (expects .env.local for config)
+	@if [ -f .env.local ] && grep -qE '^[[:space:]]*SSH_HOST[[:space:]]*=[[:space:]]*[^[:space:]]' .env.local; then \
+		echo "WARNING: .env.local sets SSH_HOST, so the DB needs the SSH tunnel."; \
+		echo "         'make run' does NOT mount the SSH key, so DB connections will fail."; \
+		echo "         Use 'make run-local' instead (mounts the key + AWS creds)."; \
+	fi
 	docker run --rm -p 3000:3000 --env-file .env.local --name ultraviris $(LOCAL_IMAGE)
 
 run-local: ## Run locally with .env.local and the SSH key mounted into the container
