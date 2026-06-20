@@ -4,26 +4,42 @@ import type { NextConfig } from "next";
 // because Next's App Router injects inline hydration scripts (and we use inline
 // style attributes) without a nonce. img-src allows https: so CDN/S3-hosted
 // gallery images load regardless of the configured IMAGE_BASE_URL host.
+//
+// Dev needs to be looser than prod: Next's dev runtime/HMR uses eval()
+// ('unsafe-eval') and a WebSocket (ws:), and serving assets over http on
+// localhost means we must NOT emit `upgrade-insecure-requests` (it would
+// force /_next/static asset requests to https://localhost and break styling).
+const isDev = process.env.NODE_ENV !== "production";
+
 const cspDirectives = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  "connect-src 'self'",
+  `connect-src 'self'${isDev ? " ws: wss:" : ""}`,
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
   "object-src 'none'",
-  "upgrade-insecure-requests",
+  // Only force HTTPS upgrades in production; on http://localhost this would
+  // break asset loading.
+  ...(isDev ? [] : ["upgrade-insecure-requests"]),
 ].join("; ");
 
 const securityHeaders = [
   { key: "Content-Security-Policy", value: cspDirectives },
-  {
-    key: "Strict-Transport-Security",
-    value: "max-age=63072000; includeSubDomains; preload",
-  },
+  // HSTS only in production. Sending it on http://localhost gets the browser to
+  // pin localhost as HTTPS-only (for the full max-age), making the dev server
+  // unreachable over http.
+  ...(isDev
+    ? []
+    : [
+        {
+          key: "Strict-Transport-Security",
+          value: "max-age=63072000; includeSubDomains; preload",
+        },
+      ]),
   { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
