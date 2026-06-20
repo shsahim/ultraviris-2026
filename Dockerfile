@@ -5,7 +5,7 @@
 
 # Keep in sync with the Node version used by CI (.github/workflows) so the
 # build/runtime environment matches what tests run against.
-ARG NODE_VERSION=22-alpine
+ARG NODE_VERSION=26-alpine
 
 # ---- deps: install full dependencies (incl. native ssh2/mysql2) ----
 FROM node:${NODE_VERSION} AS deps
