@@ -9,7 +9,12 @@ import {
 import { HeadBucketCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { query } from "@/lib/db";
 import { escapeId, listTables } from "@/lib/admin-db";
-import { imageExistsWithFallback, toImageUrl } from "@/lib/image-resolve";
+import {
+  imageExistsWithFallback,
+  normalizeFileLocation,
+  resolveImageKey,
+  toImageUrl,
+} from "@/lib/image-resolve";
 import { getS3Client, isS3Enabled, listS3ImageKeys } from "@/lib/storage";
 import { checkGitHubAccess, getIssueRepo } from "@/lib/github";
 
@@ -115,8 +120,11 @@ function localImageExists(fileLocation: string): boolean {
   );
 }
 
+// Mirror the runtime renderer (resolveImageDetailed -> resolveImageKey) so the
+// health card flags an image as broken only when the page would actually fail to
+// resolve it — not merely when the stored key isn't an exact/extension match.
 function s3KeyExists(keys: Set<string>, fileLocation: string): boolean {
-  return imageExistsWithFallback(fileLocation, (relative) => keys.has(relative));
+  return resolveImageKey(normalizeFileLocation(fileLocation), keys) !== null;
 }
 
 // Caps a slow external call so the health page never hangs on it.

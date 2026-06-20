@@ -16,13 +16,8 @@
  * Requires S3_BUCKET, AWS credentials, and database access (SSH tunnel if local).
  */
 import { readFileSync } from "node:fs";
-import path from "node:path";
 import { ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
-import {
-  IMAGE_EXT_FALLBACKS,
-  normalizeFileLocation,
-  resolveFileLocationWithFallback,
-} from "../lib/image-resolve";
+import { normalizeFileLocation, resolveImageKey } from "../lib/image-resolve";
 
 /** Progress on stderr — unbuffered and visible even when stdout is piped. */
 function log(msg: string): void {
@@ -115,14 +110,6 @@ async function listS3Keys(): Promise<Set<string>> {
   return keys;
 }
 
-function buildKeyIndex(keys: Set<string>): Map<string, string> {
-  const byLower = new Map<string, string>();
-  for (const key of keys) {
-    byLower.set(key.toLowerCase(), key);
-  }
-  return byLower;
-}
-
 function storedToKey(stored: string): string {
   const trimmed = stored.trim();
   if (baseUrl && trimmed.startsWith(`${baseUrl}/`)) {
@@ -131,79 +118,17 @@ function storedToKey(stored: string): string {
   return normalizeFileLocation(trimmed);
 }
 
-function keyExists(
-  key: string,
-  keys: Set<string>,
-  byLower: Map<string, string>
-): boolean {
-  return keys.has(key) || byLower.has(key.toLowerCase());
-}
-
-function canonicalKey(
-  key: string,
-  keys: Set<string>,
-  byLower: Map<string, string>
-): string {
-  if (keys.has(key)) return key;
-  return byLower.get(key.toLowerCase()) ?? key;
-}
-
-function basenameStem(filename: string): string {
-  const ext = path.extname(filename);
-  return filename.slice(0, filename.length - ext.length).toLowerCase();
-}
-
-function findInTableFolder(
-  table: string,
-  storedKey: string,
-  keys: Set<string>,
-  byLower: Map<string, string>
-): string | null {
-  const prefix = `images/${table}/`;
-  const storedBase = path.basename(storedKey).toLowerCase();
-  const storedStem = basenameStem(storedBase);
-
-  const matches: string[] = [];
-  for (const key of keys) {
-    if (!key.startsWith(prefix)) continue;
-    const file = path.basename(key);
-    const lower = file.toLowerCase();
-    if (lower === storedBase) return canonicalKey(key, keys, byLower);
-    if (basenameStem(lower) === storedStem) matches.push(key);
-  }
-
-  if (matches.length === 0) return null;
-  if (matches.length === 1) return matches[0];
-
-  for (const alt of IMAGE_EXT_FALLBACKS) {
-    const hit = matches.find((k) => path.extname(k).toLowerCase() === alt);
-    if (hit) return hit;
-  }
-  return matches[0];
-}
-
-function resolveS3Key(
-  table: string,
-  stored: string,
-  keys: Set<string>,
-  byLower: Map<string, string>
-): string | null {
+// Resolve using the SAME fuzzy matcher the app uses at runtime
+// (lib/image-resolve.resolveImageKey): exact -> extension swap -> same-folder
+// basename stem (case-insensitive) -> unique prefix recovery, all within the
+// stored key's OWN folder. This keeps the migration consistent with what the
+// site actually renders/self-heals, and fixes the prior bug where it only
+// searched images/<table>/ (which misses folders named differently from the
+// table, e.g. installations -> images/sculptures_and_installations/).
+function resolveS3Key(stored: string, keys: Set<string>): string | null {
   const key = storedToKey(stored);
   if (!key) return null;
-
-  const exists = (candidate: string) =>
-    keyExists(candidate, keys, byLower);
-
-  if (exists(key)) {
-    return canonicalKey(key, keys, byLower);
-  }
-
-  const withExt = resolveFileLocationWithFallback(key, exists);
-  if (exists(withExt)) {
-    return canonicalKey(withExt, keys, byLower);
-  }
-
-  return findInTableFolder(table, key, keys, byLower);
+  return resolveImageKey(key, keys);
 }
 
 function formatStoredLocation(resolvedKey: string, original: string): string {
@@ -224,7 +149,6 @@ function storedMatchesResolved(
 
 try {
   const keys = await listS3Keys();
-  const byLower = buildKeyIndex(keys);
   log(`S3 listing complete: ${keys.size} object(s).\n`);
 
   log("Connecting to database …");
@@ -270,7 +194,7 @@ try {
       const stored = (row.File_Location ?? "").trim();
       if (!stored) continue;
 
-      const resolvedKey = resolveS3Key(table, stored, keys, byLower);
+      const resolvedKey = resolveS3Key(stored, keys);
       if (!resolvedKey) {
         missing++;
         tableMissing++;
