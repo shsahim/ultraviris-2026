@@ -3,7 +3,9 @@
 # Multi-stage build producing a small, self-contained Next.js runtime.
 # Built for linux/arm64 (AWS Graviton) but works on amd64 too.
 
-ARG NODE_VERSION=20-alpine
+# Keep in sync with the Node version used by CI (.github/workflows) so the
+# build/runtime environment matches what tests run against.
+ARG NODE_VERSION=22-alpine
 
 # ---- deps: install full dependencies (incl. native ssh2/mysql2) ----
 FROM node:${NODE_VERSION} AS deps

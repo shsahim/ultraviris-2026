@@ -4,7 +4,6 @@ import { cached } from "@/lib/cache";
 import {
   IMAGE_EXT_FALLBACKS,
   normalizeFileLocation,
-  resolveFileLocationWithFallback,
 } from "@/lib/image-resolve";
 
 async function urlReachable(url: string): Promise<boolean> {

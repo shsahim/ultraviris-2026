@@ -7,6 +7,7 @@ type Status = "idle" | "sending" | "sent" | "error";
 export default function ContactForm() {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
+  const [company, setCompany] = useState(""); // honeypot; real users leave blank
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState("");
 
@@ -19,7 +20,7 @@ export default function ContactForm() {
       const res = await fetch("/api/contact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, message }),
+        body: JSON.stringify({ email, message, company }),
       });
       const data = await res.json();
 
@@ -30,6 +31,7 @@ export default function ContactForm() {
       setStatus("sent");
       setEmail("");
       setMessage("");
+      setCompany("");
     } catch (err) {
       setStatus("error");
       setError(err instanceof Error ? err.message : "Something went wrong.");
@@ -38,6 +40,20 @@ export default function ContactForm() {
 
   return (
     <form onSubmit={handleSubmit} className="contact-form">
+      {/* Honeypot: hidden from users, ignored by them, often filled by bots. */}
+      <div aria-hidden="true" style={{ position: "absolute", left: "-9999px" }}>
+        <label htmlFor="company">Company</label>
+        <input
+          id="company"
+          name="company"
+          type="text"
+          tabIndex={-1}
+          autoComplete="off"
+          value={company}
+          onChange={(e) => setCompany(e.target.value)}
+        />
+      </div>
+
       <div className="contact-field">
         <label htmlFor="email" className="contact-label">
           Email
@@ -62,6 +78,7 @@ export default function ContactForm() {
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           required
+          maxLength={5000}
           placeholder="Write your message..."
           className="contact-textarea"
         />
