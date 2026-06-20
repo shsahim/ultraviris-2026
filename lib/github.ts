@@ -146,6 +146,7 @@ interface RawIssue {
   title: string;
   html_url: string;
   body: string | null;
+  state: string;
   user: { login: string } | null;
   created_at: string;
   updated_at: string;
@@ -214,6 +215,81 @@ export async function listOpenIssues(limit = 30): Promise<IssueSummary[]> {
           : { name: label.name, color: label.color }
       ),
     }));
+}
+
+export interface IssueStats {
+  open: number;
+  closed: number;
+  inProgress: number;
+}
+
+// Detects a checked markdown task-list item (e.g. "- [x] done") anywhere in the
+// issue body. An open issue with at least one checked box is treated as
+// "in progress".
+const CHECKED_TASK_BOX = /^[ \t]*[-*]\s+\[[xX]\]/m;
+
+export function hasCheckedTaskBox(body: string | null): boolean {
+  return body ? CHECKED_TASK_BOX.test(body) : false;
+}
+
+/**
+ * Summarizes the configured repo's issues: how many are open, how many are
+ * closed, and how many open issues are "in progress" (their description has at
+ * least one checked checkbox). Pull requests are excluded. Throws a friendly
+ * error on failure.
+ */
+export async function getIssueStats(): Promise<IssueStats> {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) {
+    throw new Error(
+      "GitHub access is not configured (GITHUB_TOKEN is not set)."
+    );
+  }
+
+  const repo = getIssueRepo();
+  const perPage = 100;
+  let open = 0;
+  let closed = 0;
+  let inProgress = 0;
+
+  // Page through every issue (open + closed). Cap the loop so a huge repo can't
+  // hang the admin page; 10 pages = up to 1000 issues.
+  for (let page = 1; page <= 10; page++) {
+    let res: Response;
+    try {
+      res = await fetch(
+        `${GITHUB_API}/repos/${repo}/issues?state=all&per_page=${perPage}&page=${page}`,
+        {
+          headers: authHeaders(token),
+          signal: AbortSignal.timeout(10_000),
+          cache: "no-store",
+        }
+      );
+    } catch {
+      throw new Error("Could not reach GitHub. Please try again.");
+    }
+
+    if (!res.ok) {
+      throw new Error(describeError(res.status, "", repo));
+    }
+
+    const data = (await res.json()) as RawIssue[];
+    if (data.length === 0) break;
+
+    for (const issue of data) {
+      if (issue.pull_request) continue;
+      if (issue.state === "closed") {
+        closed++;
+      } else {
+        open++;
+        if (hasCheckedTaskBox(issue.body)) inProgress++;
+      }
+    }
+
+    if (data.length < perPage) break;
+  }
+
+  return { open, closed, inProgress };
 }
 
 /** Fetches the comments for a single issue. Throws a friendly error on failure. */

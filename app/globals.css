@@ -611,6 +611,37 @@ b {
   margin-bottom: 1.25rem;
 }
 
+.admin-issue-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.admin-issue-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid #eeeeee;
+  border-radius: 12px;
+  min-width: 0;
+}
+
+.admin-issue-stat-value {
+  font-size: 1.9rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.admin-issue-stat-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #555555;
+}
+
 .admin-health-card {
   display: flex;
   flex-direction: column;
@@ -1385,6 +1416,14 @@ b {
 
 .admin-comment-body {
   font-size: 0.9rem;
+}
+
+.admin-issue-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1rem;
 }
 
 .admin-issue-repo-note {

@@ -132,6 +132,8 @@ function IssueRow({ issue }: { issue: IssueSummary }) {
   );
 }
 
+const PAGE_SIZE = 10;
+
 export default function ActiveIssues({
   configured,
   repo,
@@ -143,6 +145,14 @@ export default function ActiveIssues({
   issues: IssueSummary[];
   error?: string;
 }) {
+  const [page, setPage] = useState(1);
+
+  const totalPages = Math.max(1, Math.ceil(issues.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const visibleIssues = issues.slice(start, start + PAGE_SIZE);
+  const paginated = issues.length > PAGE_SIZE;
+
   return (
     <section className="admin-section" id="issues">
       <h2 className="admin-subtitle">
@@ -160,11 +170,37 @@ export default function ActiveIssues({
       ) : issues.length === 0 ? (
         <p className="admin-muted">No open issues. Nice work.</p>
       ) : (
-        <ul className="admin-issue-list">
-          {issues.map((issue) => (
-            <IssueRow key={issue.number} issue={issue} />
-          ))}
-        </ul>
+        <>
+          <ul className="admin-issue-list">
+            {visibleIssues.map((issue) => (
+              <IssueRow key={issue.number} issue={issue} />
+            ))}
+          </ul>
+
+          {paginated && (
+            <div className="admin-issue-pagination">
+              <button
+                type="button"
+                className="admin-button admin-button--small admin-button--ghost"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage <= 1}
+              >
+                ← Previous
+              </button>
+              <span className="admin-muted">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                className="admin-button admin-button--small admin-button--ghost"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+              >
+                Next →
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       <p className="admin-muted admin-issue-repo-note">
