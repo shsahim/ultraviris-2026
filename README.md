@@ -3,6 +3,12 @@
 Next.js site for [nataliernathan.com](https://nataliernathan.com) — gallery,
 contact form, and a password-protected admin area for database editing.
 
+[![branch-CI](https://github.com/shsahim/ultraviris-2026/actions/workflows/branch-ci.yml/badge.svg)](https://github.com/shsahim/ultraviris-2026/actions/workflows/branch-ci.yml)
+[![CI/CD](https://github.com/shsahim/ultraviris-2026/actions/workflows/build-and-push.yml/badge.svg)](https://github.com/shsahim/ultraviris-2026/actions/workflows/build-and-push.yml)
+[![Tests](https://github.com/shsahim/ultraviris-2026/actions/workflows/test.yml/badge.svg)](https://github.com/shsahim/ultraviris-2026/actions/workflows/test.yml)
+[![Export dev secrets](https://github.com/shsahim/ultraviris-2026/actions/workflows/export-dev-secrets.yml/badge.svg)](https://github.com/shsahim/ultraviris-2026/actions/workflows/export-dev-secrets.yml)
+[![Site](https://img.shields.io/website?url=https%3A%2F%2Fnataliernathan.com&label=nataliernathan.com&up_message=up&up_color=brightgreen&down_message=down&down_color=red)](https://nataliernathan.com)
+
 ## Quick start
 
 ```bash
