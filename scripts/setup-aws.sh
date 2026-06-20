@@ -474,7 +474,7 @@ setup_ec2_iam() {
         },
         {
           Effect: "Allow",
-          Action: ["ses:SendEmail", "ses:SendRawEmail"],
+          Action: ["ses:SendEmail", "ses:SendRawEmail", "ses:GetSendQuota"],
           Resource: "*"
         },
         {
