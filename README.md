@@ -22,19 +22,22 @@ Moving to a new machine? See [docs/dev-environment-sync.md](docs/dev-environment
 | `npm run dev` | Development server |
 | `npm run build` / `npm run start` | Production build |
 | `npm test` | Unit tests |
-| `npm run env:push-gh` | Upload dev secrets to GitHub |
+| `npm run test:e2e` | Playwright E2E (build first; `npm run test:e2e:install` for browsers) |
+| `npm run env:push-gh` | Upload dev secrets to GitHub (move between machines) |
 | `npm run env:pull-gh` | Restore dev secrets from GitHub |
+| `make push-github-env` | Push `.env.local` to `APP_*` GitHub Secrets/Variables (CI deploy source) |
+| `make sync-secrets` | Preview the `.env.local` → Secrets Manager sync (dry-run) |
 | `make build` / `make run` | Local Docker image |
-| `make ship` | Build, push to ECR, deploy |
+| `make ship` | Validate+sync secrets, build, push to ECR, deploy |
 | `make help` | All Make targets |
 
 ## Documentation
 
 | Guide | Topics |
 |-------|--------|
-| [Configuration](docs/configuration.md) | `.env.local`, MySQL over SSH, admin, SES, health checks |
+| [Configuration](docs/configuration.md) | `.env.local`, MySQL over SSH, admin + issue reporter, images, SES, health |
 | [Dev environment sync](docs/dev-environment-sync.md) | Secrets between machines |
-| [Deployment](docs/deployment.md) | Docker, CI/CD, ALB + ASG, manual deploy |
+| [Deployment](docs/deployment.md) | Docker, CI/CD, secret sync, branch-CI (E2E), ALB + ASG, manual deploy |
 | [AWS setup](docs/aws-setup.md) | `setup-aws.sh`, provisioning scripts |
 | [Production checklist](docs/production-checklist.md) | Pre-launch TODOs |
 
