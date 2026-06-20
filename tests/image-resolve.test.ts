@@ -3,7 +3,44 @@ import {
   imageExistsWithFallback,
   resolveFileLocationWithFallback,
   resolveImageKey,
+  toImageUrl,
 } from "@/lib/image-resolve";
+
+describe("toImageUrl", () => {
+  it("builds a plain URL for simple keys", () => {
+    expect(toImageUrl("https://cdn.example.com", "images/x/foo.jpg")).toBe(
+      "https://cdn.example.com/images/x/foo.jpg"
+    );
+  });
+
+  it("encodes spaces in a path segment", () => {
+    expect(toImageUrl("https://cdn.example.com", "images/a b.jpg")).toBe(
+      "https://cdn.example.com/images/a%20b.jpg"
+    );
+  });
+
+  it("encodes reserved characters that would otherwise corrupt the URL", () => {
+    expect(toImageUrl("https://cdn.example.com", "images/a#b?c.jpg")).toBe(
+      "https://cdn.example.com/images/a%23b%3Fc.jpg"
+    );
+  });
+
+  it("does not escape the slash separators", () => {
+    expect(toImageUrl("https://cdn.example.com", "a/b/c.jpg")).toBe(
+      "https://cdn.example.com/a/b/c.jpg"
+    );
+  });
+
+  it("produces a valid URL parseable by the WHATWG URL parser", () => {
+    const url = toImageUrl("https://cdn.example.com", "images/a #b.jpg");
+    expect(() => new URL(url)).not.toThrow();
+    expect(new URL(url).pathname).toBe("/images/a%20%23b.jpg");
+  });
+
+  it("builds a root-relative path when baseUrl is empty", () => {
+    expect(toImageUrl("", "images/a b.jpg")).toBe("/images/a%20b.jpg");
+  });
+});
 
 describe("resolveFileLocationWithFallback", () => {
   it("returns the original path when it exists", () => {

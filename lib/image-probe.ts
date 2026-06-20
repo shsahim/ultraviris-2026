@@ -4,6 +4,7 @@ import { cached } from "@/lib/cache";
 import {
   IMAGE_EXT_FALLBACKS,
   normalizeFileLocation,
+  toImageUrl,
 } from "@/lib/image-resolve";
 
 async function urlReachable(url: string): Promise<boolean> {
@@ -28,7 +29,7 @@ export async function resolveRemoteImagePath(
   const relative = normalizeFileLocation(fileLocation);
   if (!relative) return relative;
 
-  const primary = `${baseUrl}/${relative}`;
+  const primary = toImageUrl(baseUrl, relative);
   if (await urlReachable(primary)) return relative;
 
   const ext = path.extname(relative);
@@ -36,7 +37,7 @@ export async function resolveRemoteImagePath(
   for (const alt of IMAGE_EXT_FALLBACKS) {
     if (alt === ext.toLowerCase()) continue;
     const candidate = base + alt;
-    if (await urlReachable(`${baseUrl}/${candidate}`)) return candidate;
+    if (await urlReachable(toImageUrl(baseUrl, candidate))) return candidate;
   }
 
   return relative;

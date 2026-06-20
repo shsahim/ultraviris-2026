@@ -5,6 +5,7 @@ import {
   normalizeFileLocation,
   resolveFileLocationWithFallback,
   resolveImageKey,
+  toImageUrl,
 } from "@/lib/image-resolve";
 import { resolveRemoteImagePath } from "@/lib/image-probe";
 import { cached } from "@/lib/cache";
@@ -74,7 +75,7 @@ export async function resolveImageDetailed(
         const resolvedKey = resolveImageKey(relative, keys);
         if (resolvedKey) {
           return {
-            src: `${baseUrl}/${resolvedKey}`,
+            src: toImageUrl(baseUrl, resolvedKey),
             correctedLocation:
               resolvedKey !== relative
                 ? formatStoredLocation(resolvedKey, trimmed, baseUrl)
@@ -87,7 +88,7 @@ export async function resolveImageDetailed(
 
     const resolved = await resolveRemoteImagePath(baseUrl, relative);
     return {
-      src: `${baseUrl}/${resolved}`,
+      src: toImageUrl(baseUrl, resolved),
       correctedLocation:
         resolved !== relative
           ? formatStoredLocation(resolved, trimmed, baseUrl)
@@ -104,7 +105,7 @@ export async function resolveImageDetailed(
     existsSync(path.join(PUBLIC_DIR, p))
   );
   return {
-    src: resolved ? `/${resolved}` : "/",
+    src: resolved ? toImageUrl("", resolved) : "/",
     correctedLocation:
       resolved !== relative ? formatStoredLocation(resolved, trimmed) : undefined,
   };

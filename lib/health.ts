@@ -9,7 +9,7 @@ import {
 import { HeadBucketCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { query } from "@/lib/db";
 import { escapeId, listTables } from "@/lib/admin-db";
-import { imageExistsWithFallback } from "@/lib/image-resolve";
+import { imageExistsWithFallback, toImageUrl } from "@/lib/image-resolve";
 import { getS3Client, isS3Enabled, listS3ImageKeys } from "@/lib/storage";
 import { checkGitHubAccess, getIssueRepo } from "@/lib/github";
 
@@ -431,12 +431,13 @@ async function checkPublicImageHealth(): Promise<PublicImageHealth> {
         message: "No objects found in the bucket to probe.",
       };
     }
-    const sampleUrl = `${baseUrl}/${key}`;
-    const res = await withTimeout(
-      fetch(sampleUrl, { method: "HEAD" }),
-      5000,
-      "Public image"
-    );
+    const sampleUrl = toImageUrl(baseUrl, key);
+    // AbortSignal.timeout actually cancels the request (and frees the socket)
+    // on a slow host, unlike a Promise.race wrapper which would leave it open.
+    const res = await fetch(sampleUrl, {
+      method: "HEAD",
+      signal: AbortSignal.timeout(5000),
+    });
     const ok = res.ok;
     let message: string;
     if (ok) {

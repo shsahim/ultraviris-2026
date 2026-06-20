@@ -8,6 +8,18 @@ export function normalizeFileLocation(fileLocation: string): string {
 }
 
 /**
+ * Builds a browser-usable URL from a base URL and a relative object key,
+ * URL-encoding each path segment (but not the `/` separators) so keys with
+ * spaces or reserved characters (e.g. `#`, `?`) produce valid URLs. The key is
+ * never mutated for storage — only the returned URL is encoded. Pass an empty
+ * `baseUrl` to build a root-relative path (e.g. `/sub/a%20b.jpg`).
+ */
+export function toImageUrl(baseUrl: string, key: string): string {
+  const encoded = key.split("/").map(encodeURIComponent).join("/");
+  return `${baseUrl}/${encoded}`;
+}
+
+/**
  * Returns the relative path that exists, trying sibling extensions when the
  * stored extension does not match the file on disk or in S3.
  */

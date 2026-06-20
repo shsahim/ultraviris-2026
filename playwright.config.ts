@@ -37,7 +37,9 @@ export default defineConfig({
     { name: "Mobile Safari", use: { ...devices["iPhone 13"] } },
   ],
   webServer: {
-    command: `npm run start -- -p ${PORT}`,
+    // next.config.ts uses output: "standalone", which `next start` can't serve.
+    // e2e/serve.mjs assembles + launches the standalone server (honors E2E_PORT).
+    command: "node e2e/serve.mjs",
     url: baseURL,
     timeout: 120_000,
     reuseExistingServer: !process.env.CI,
