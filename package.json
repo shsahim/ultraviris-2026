@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "fix-file-locations-s3": "tsx scripts/fix-file-locations-s3.mts",
     "fix-active-projects": "tsx scripts/fix-active-projects.mts",
+    "sync-secrets": "tsx scripts/sync-secrets.mts",
     "env:export": "node scripts/sync-dev-env.mjs export --include-aws --include-gh",
     "env:push-gh": "node scripts/sync-dev-env.mjs push-gh --include-aws",
     "env:pull-gh": "node scripts/sync-dev-env.mjs pull-gh --include-aws"

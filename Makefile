@@ -24,8 +24,16 @@ SSH_KEY         ?= /Users/ssahim/Documents/Documents - Spencer’s MacBook Pro/P
 AWS_DIR         ?= $(HOME)/.aws
 AWS_MOUNT       := $(if $(wildcard $(AWS_DIR)/credentials),-v "$(AWS_DIR):/home/nextjs/.aws:ro" -e HOME=/home/nextjs,)
 
+# GitHub issue reporter (admin "Report an issue"). Local/dev targets pull a token
+# from the gh CLI into .env.local. Production receives it — and every other
+# secret — via `make ship`, which validates and syncs .env.local into the
+# ENV_SECRET Secrets Manager secret (see scripts/sync-secrets.mts).
+GITHUB_ISSUE_REPO ?= shsahim/ultraviris-2026
+ENV_SECRET        ?= ultraviris/env
+
 .PHONY: help version install test lint typecheck build buildx-setup ecr-login \
         build-arm64 push run run-local stop logs ecr-create check-s3 \
+        github-token-local sync-secrets \
         fix-file-locations-s3 fix-active-projects launch-ec2 setup-aws setup-alb-asg dns dns-create-role ship deploy
 
 # EC2 tag the deploy targets/pipeline aim at, and the on-instance deploy script.
@@ -59,7 +67,7 @@ lint: ## Lint
 typecheck: ## Type-check
 	npx tsc --noEmit
 
-build: ## Build a local image for the host arch (tags :$(VERSION), :local, :latest)
+build: github-token-local ## Build a local image for the host arch (tags :$(VERSION), :local, :latest)
 	docker build \
 		--label org.opencontainers.image.version=$(VERSION) \
 		--label org.opencontainers.image.revision=$(GIT_SHA) \
@@ -97,7 +105,7 @@ push: buildx-setup ecr-login ecr-create ## Build ARM64 and push to ECR (version 
 		-t $(IMAGE):latest \
 		--push .
 
-run: ## Run the local image (expects .env.local for config)
+run: github-token-local ## Run the local image (expects .env.local for config)
 	@if [ -f .env.local ] && grep -qE '^[[:space:]]*SSH_HOST[[:space:]]*=[[:space:]]*[^[:space:]]' .env.local; then \
 		echo "WARNING: .env.local sets SSH_HOST, so the DB needs the SSH tunnel."; \
 		echo "         'make run' does NOT mount the SSH key, so DB connections will fail."; \
@@ -105,7 +113,7 @@ run: ## Run the local image (expects .env.local for config)
 	fi
 	docker run --rm -p 3000:3000 --env-file .env.local --name ultraviris $(LOCAL_IMAGE)
 
-run-local: ## Run locally with .env.local and the SSH key mounted into the container
+run-local: github-token-local ## Run locally with .env.local and the SSH key mounted into the container
 	@test -f "$(SSH_KEY)" || { echo "SSH key not found: $(SSH_KEY)"; echo "Set it with: make run-local SSH_KEY=/path/to/key.pem"; exit 1; }
 	docker run --rm -p 3000:3000 \
 		--env-file .env.local \
@@ -119,6 +127,12 @@ stop: ## Stop the running container
 
 logs: ## Tail container logs
 	docker logs -f ultraviris
+
+github-token-local: ## Sync GITHUB_TOKEN (via gh) + GITHUB_ISSUE_REPO into .env.local
+	@GITHUB_ISSUE_REPO="$(GITHUB_ISSUE_REPO)" ./scripts/github-token.sh env-local
+
+sync-secrets: ## Preview the .env.local -> $(ENV_SECRET) secret sync (dry-run; validates, no writes)
+	@AWS_REGION="$(AWS_REGION)" ENV_SECRET="$(ENV_SECRET)" npm run --silent sync-secrets
 
 check-s3: ## Verify S3 images are publicly reachable (optionally KEY=images/...)
 	@./scripts/check-s3.sh $(KEY)
@@ -151,16 +165,25 @@ dns-create-role: ## Create the cross-account Route 53 role (run with DNS-account
 dns: ## Upsert ACM validation + apex ALIAS in the DNS account (run with app-account creds)
 	@./scripts/setup-dns.sh apply
 
-ship: buildx-setup ecr-login ecr-create ## Build+push the current commit to ECR and roll it out (full local CD, bypasses GitHub)
-	@TAG="$${TAG:-$(DEPLOY_TAG)}"; \
-	echo "Building and pushing $(IMAGE):$$TAG (+ :latest)..."; \
-	docker buildx build --platform $(PLATFORM) \
+ship: buildx-setup ecr-login ecr-create ## Validate+sync secrets, build+push, and roll out (rolls the secret back if the deploy is unhealthy)
+	@set -e; \
+	TAG="$${TAG:-$(DEPLOY_TAG)}"; \
+	echo "== Validating + syncing secrets (.env.local -> $(ENV_SECRET)) =="; \
+	AWS_REGION="$(AWS_REGION)" ENV_SECRET="$(ENV_SECRET)" npm run --silent sync-secrets -- --apply; \
+	echo "== Building and pushing $(IMAGE):$$TAG (+ :latest) =="; \
+	if docker buildx build --platform $(PLATFORM) \
 		--label org.opencontainers.image.version=$(VERSION) \
 		--label org.opencontainers.image.revision=$(GIT_SHA) \
 		-t $(IMAGE):$$TAG \
 		-t $(IMAGE):latest \
-		--push .; \
-	$(ROLLOUT_ENV) ./scripts/rollout.sh "$$TAG"
+		--push . \
+		&& $(ROLLOUT_ENV) ./scripts/rollout.sh "$$TAG"; then \
+		echo "Ship complete: $$TAG"; \
+	else \
+		echo "!! Build or rollout failed after the secret update — rolling the secret back"; \
+		AWS_REGION="$(AWS_REGION)" ENV_SECRET="$(ENV_SECRET)" npm run --silent sync-secrets -- --rollback || true; \
+		exit 1; \
+	fi
 
 deploy: ## Roll out an already-pushed tag (TAG=<sha|latest>, default: git short sha); no build
 	@TAG="$${TAG:-$(DEPLOY_TAG)}"; \
