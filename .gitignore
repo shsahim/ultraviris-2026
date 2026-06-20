@@ -156,3 +156,9 @@ ultraviris-dev-bundle*
 
 # CI-assembled production env (never commit)
 ci.env
+
+# Playwright
+playwright-report/
+test-results/
+/blob-report/
+.playwright/
