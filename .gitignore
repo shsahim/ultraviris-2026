@@ -148,3 +148,8 @@ vite.config.ts.timestamp-*
 # AWS setup script local config / generated outputs
 scripts/aws-setup.config
 scripts/aws-setup-outputs.env
+
+# Dev environment export bundles (secrets — never commit)
+ultraviris-dev-bundle*
+.dev-bundle-staging-*
+.dev-bundle-import-*
