@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isAuthed } from "@/lib/auth";
 import { assertValidTable } from "@/lib/admin-db";
 import { saveImage } from "@/lib/storage";
+import { sniffImageType } from "@/lib/image-sniff";
 
 const MAX_BYTES = 15 * 1024 * 1024; // 15 MB
 
@@ -34,7 +35,18 @@ export async function POST(request: Request) {
     await assertValidTable(table);
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const saved = await saveImage(table, file.name, buffer, file.type);
+
+    // Don't trust the client-supplied MIME type or filename: verify the actual
+    // file contents are a real image. Also rejects SVG (a scriptable format).
+    const detectedType = sniffImageType(buffer);
+    if (!detectedType) {
+      return NextResponse.json(
+        { error: "File does not appear to be a valid image." },
+        { status: 400 }
+      );
+    }
+
+    const saved = await saveImage(table, file.name, buffer, detectedType);
 
     return NextResponse.json(saved);
   } catch (error) {

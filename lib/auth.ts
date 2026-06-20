@@ -11,13 +11,31 @@ import {
 const COOKIE_NAME = "uv_admin_session";
 const SESSION_MAX_AGE = 60 * 60 * 8; // 8 hours
 
+// Dev-only fallback so the app runs without configuration locally. In
+// production a weak/known secret would let an attacker forge session cookies,
+// so we require ADMIN_SESSION_SECRET to be set and refuse to start otherwise.
+const DEV_SESSION_SECRET = "ultraviris-admin-dev-only";
+
+function sessionSecret(): string {
+  const secret = process.env.ADMIN_SESSION_SECRET;
+  if (secret) {
+    return secret;
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "ADMIN_SESSION_SECRET must be set in production. Refusing to use the " +
+        "insecure development fallback for signing admin sessions."
+    );
+  }
+  return DEV_SESSION_SECRET;
+}
+
 // The session cookie is a stateless, signed token bound to the user's current
 // password hash. Changing a user's password (or deleting them) therefore
 // invalidates their existing sessions without needing a server-side store.
 function tokenFor(username: string, passwordHash: string): string {
-  const secret = process.env.ADMIN_SESSION_SECRET ?? "ultraviris-admin";
   return crypto
-    .createHmac("sha256", secret)
+    .createHmac("sha256", sessionSecret())
     .update(`${username}:${passwordHash}`)
     .digest("hex");
 }

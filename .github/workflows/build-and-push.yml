@@ -79,6 +79,20 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Fail the build on actionable (fixable) CRITICAL/HIGH CVEs in OS packages
+      # or app dependencies. `ignore-unfixed` avoids blocking on base-image CVEs
+      # with no available patch. Already logged in to ECR above, so Trivy can
+      # pull the just-pushed image.
+      - name: Scan image for vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ steps.vars.outputs.tag }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
   # ── Deploy the freshly-pushed tag to the EC2 instance(s) via SSM ─────────────
   deploy:
     needs: build

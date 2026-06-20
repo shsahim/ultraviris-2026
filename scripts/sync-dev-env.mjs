@@ -693,7 +693,7 @@ function collectSensitiveEnvSecrets() {
   return secrets;
 }
 
-function pushGhSecrets({ flags, options }) {
+function pushGhSecrets({ flags }) {
   const dryRun = flags.has("dry-run");
   const includeAws = flags.has("include-aws");
   const noAws = flags.has("no-aws");
