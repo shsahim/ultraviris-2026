@@ -2,12 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import {
   destroySession,
   getSessionUsername,
   isAuthed,
   login,
 } from "@/lib/auth";
+import { clientIp, rateLimit } from "@/lib/rate-limit";
 import {
   changePassword,
   createUser,
@@ -30,6 +32,9 @@ import { invalidateAll } from "@/lib/cache";
 
 const PROJECTS_TABLE = "active_projects";
 
+// Throttle sign-in attempts per IP to slow online password guessing.
+const LOGIN_RATE_LIMIT = { limit: 10, windowMs: 15 * 60 * 1000 }; // 10 / 15 min
+
 export interface FormState {
   ok?: boolean;
   error?: string;
@@ -39,6 +44,11 @@ export async function loginAction(
   _prev: FormState,
   formData: FormData
 ): Promise<FormState> {
+  const ip = clientIp(await headers());
+  if (!rateLimit(`login:${ip}`, LOGIN_RATE_LIMIT).ok) {
+    return { error: "Too many sign-in attempts. Please try again later." };
+  }
+
   const username = String(formData.get("username") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   if (!username || !password) {
