@@ -6,11 +6,12 @@ import {
   GetSendQuotaCommand,
   SESClient,
 } from "@aws-sdk/client-ses";
-import { HeadBucketCommand } from "@aws-sdk/client-s3";
+import { HeadBucketCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { query } from "@/lib/db";
 import { escapeId, listTables } from "@/lib/admin-db";
 import { imageExistsWithFallback } from "@/lib/image-resolve";
 import { getS3Client, isS3Enabled, listS3ImageKeys } from "@/lib/storage";
+import { checkGitHubAccess, getIssueRepo } from "@/lib/github";
 
 export interface TableCount {
   table: string;
@@ -54,6 +55,42 @@ export interface ImageHealth {
   message: string;
 }
 
+export interface PublicImageHealth {
+  applicable: boolean;
+  ok: boolean;
+  status: number | null;
+  sampleUrl: string | null;
+  message: string;
+}
+
+export interface GitHubHealth {
+  configured: boolean;
+  ok: boolean;
+  repo: string;
+  message: string;
+}
+
+export interface ConfigVar {
+  name: string;
+  set: boolean;
+  required: boolean;
+}
+
+export interface ConfigHealth {
+  ok: boolean;
+  missingRequired: string[];
+  vars: ConfigVar[];
+}
+
+export interface RuntimeHealth {
+  nodeVersion: string;
+  uptimeSeconds: number;
+  memoryRssMb: number;
+  memoryHeapUsedMb: number;
+  version: string | null;
+  environment: string;
+}
+
 export interface SiteHealth {
   ok: boolean;
   error: string | null;
@@ -62,6 +99,10 @@ export interface SiteHealth {
   email: EmailHealth;
   storage: StorageHealth;
   images: ImageHealth;
+  publicImages: PublicImageHealth;
+  github: GitHubHealth;
+  config: ConfigHealth;
+  runtime: RuntimeHealth;
   checkedAt: string;
 }
 
@@ -346,18 +387,156 @@ async function checkImageHealth(): Promise<ImageHealth> {
   }
 }
 
-// SES/S3 results are cached for a short window; the DB check stays live.
+// Fetches a sample object key from S3 (skipping .DS_Store noise) so the public
+// URL probe targets a real artwork file.
+async function sampleS3Key(): Promise<string | null> {
+  const client = getS3Client();
+  const res = await client.send(
+    new ListObjectsV2Command({ Bucket: process.env.S3_BUCKET, MaxKeys: 25 })
+  );
+  for (const obj of res.Contents ?? []) {
+    if (obj.Key && !obj.Key.endsWith("/") && !obj.Key.includes(".DS_Store")) {
+      return obj.Key;
+    }
+  }
+  return null;
+}
+
+// Confirms images are actually reachable over HTTP at IMAGE_BASE_URL — the way
+// browsers fetch them. A 403 means the bucket/CDN isn't publicly readable; a
+// 404 means stored keys don't match real objects. This is the check that most
+// directly explains "the image is broken in the browser".
+async function checkPublicImageHealth(): Promise<PublicImageHealth> {
+  const baseUrl = process.env.IMAGE_BASE_URL?.replace(/\/+$/, "");
+  if (!isS3Enabled() || !baseUrl) {
+    return {
+      applicable: false,
+      ok: true,
+      status: null,
+      sampleUrl: null,
+      message: !baseUrl
+        ? "IMAGE_BASE_URL not set — images are served locally."
+        : "S3 not enabled — images are served locally.",
+    };
+  }
+
+  try {
+    const key = await withTimeout(sampleS3Key(), 5000, "S3 sample");
+    if (!key) {
+      return {
+        applicable: true,
+        ok: false,
+        status: null,
+        sampleUrl: null,
+        message: "No objects found in the bucket to probe.",
+      };
+    }
+    const sampleUrl = `${baseUrl}/${key}`;
+    const res = await withTimeout(
+      fetch(sampleUrl, { method: "HEAD" }),
+      5000,
+      "Public image"
+    );
+    const ok = res.ok;
+    let message: string;
+    if (ok) {
+      message = "Public image URLs are reachable (HTTP 200).";
+    } else if (res.status === 403) {
+      message =
+        "Forbidden (403): the bucket/CDN is not publicly readable. Apply a public-read policy or serve via CloudFront/presigned URLs.";
+    } else if (res.status === 404) {
+      message =
+        "Not found (404): stored File_Location values don't match real object keys (often an extension mismatch).";
+    } else {
+      message = `Unexpected HTTP ${res.status} from the image host.`;
+    }
+    return { applicable: true, ok, status: res.status, sampleUrl, message };
+  } catch (error) {
+    return {
+      applicable: true,
+      ok: false,
+      status: null,
+      sampleUrl: null,
+      message:
+        error instanceof Error ? error.message : "Could not probe image URL.",
+    };
+  }
+}
+
+async function checkGitHubHealth(): Promise<GitHubHealth> {
+  const repo = getIssueRepo();
+  if (!process.env.GITHUB_TOKEN) {
+    return {
+      configured: false,
+      ok: false,
+      repo,
+      message: "GITHUB_TOKEN not set — the issue reporter is disabled.",
+    };
+  }
+  const access = await checkGitHubAccess();
+  return { configured: true, ok: access.ok, repo, message: access.message };
+}
+
+// Presence-only config audit (never reads secret values). `required` flags the
+// vars the app needs to function correctly in production.
+function getConfigHealth(): ConfigHealth {
+  const spec: Array<{ name: string; required: boolean }> = [
+    { name: "MYSQL_HOST", required: true },
+    { name: "MYSQL_DATABASE", required: true },
+    { name: "ADMIN_SESSION_SECRET", required: true },
+    { name: "SES_FROM_EMAIL", required: true },
+    { name: "S3_BUCKET", required: true },
+    { name: "IMAGE_BASE_URL", required: true },
+    { name: "HEALTH_CHECK_SECRET", required: false },
+    { name: "GITHUB_TOKEN", required: false },
+    { name: "CONTACT_TO_EMAIL", required: false },
+  ];
+  const vars: ConfigVar[] = spec.map(({ name, required }) => ({
+    name,
+    required,
+    set: Boolean(process.env[name] && process.env[name] !== ""),
+  }));
+  const missingRequired = vars
+    .filter((v) => v.required && !v.set)
+    .map((v) => v.name);
+  return { ok: missingRequired.length === 0, missingRequired, vars };
+}
+
+function getRuntimeHealth(): RuntimeHealth {
+  const mem = process.memoryUsage();
+  return {
+    nodeVersion: process.version,
+    uptimeSeconds: Math.round(process.uptime()),
+    memoryRssMb: Math.round(mem.rss / 1024 / 1024),
+    memoryHeapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
+    version:
+      process.env.IMAGE_TAG ??
+      process.env.GIT_COMMIT ??
+      process.env.npm_package_version ??
+      null,
+    environment: process.env.NODE_ENV ?? "development",
+  };
+}
+
+// SES/S3/GitHub results are cached for a short window; the DB check stays live.
 const getEmailHealth = cached(EXTERNAL_CHECK_TTL_MS, checkEmailHealth);
 const getStorageHealth = cached(EXTERNAL_CHECK_TTL_MS, checkStorageHealth);
 const getImageHealth = cached(EXTERNAL_CHECK_TTL_MS, checkImageHealth);
+const getPublicImageHealth = cached(
+  EXTERNAL_CHECK_TTL_MS,
+  checkPublicImageHealth
+);
+const getGitHubHealth = cached(EXTERNAL_CHECK_TTL_MS, checkGitHubHealth);
 
 export async function getSiteHealth(): Promise<SiteHealth> {
   const checkedAt = new Date().toISOString();
-  const [db, email, storage, images] = await Promise.all([
+  const [db, email, storage, images, publicImages, github] = await Promise.all([
     getDbHealth(),
     getEmailHealth(),
     getStorageHealth(),
     getImageHealth(),
+    getPublicImageHealth(),
+    getGitHubHealth(),
   ]);
 
   return {
@@ -368,6 +547,10 @@ export async function getSiteHealth(): Promise<SiteHealth> {
     email,
     storage,
     images,
+    publicImages,
+    github,
+    config: getConfigHealth(),
+    runtime: getRuntimeHealth(),
     checkedAt,
   };
 }
