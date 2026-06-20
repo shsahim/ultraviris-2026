@@ -1293,3 +1293,116 @@ b {
     bottom: 0.75rem;
   }
 }
+
+/* ---------- Admin: Active issues widget ---------- */
+.admin-issue-list {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.admin-issue {
+  border: 1px solid #e5e5e5;
+  border-radius: 12px;
+  padding: 0.9rem 1.1rem;
+}
+
+.admin-issue-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-issue-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.admin-issue-title {
+  font-weight: 600;
+  color: #111111;
+  text-decoration: none;
+}
+
+.admin-issue-title:hover {
+  text-decoration: underline;
+}
+
+.admin-issue-number {
+  color: #888888;
+  margin-right: 0.4rem;
+  font-weight: 500;
+}
+
+.admin-issue-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.admin-issue-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+}
+
+.admin-issue-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  line-height: 1.4;
+}
+
+.admin-issue-comments {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid #eeeeee;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.admin-comment {
+  border-left: 3px solid #e0e0e0;
+  padding-left: 0.8rem;
+}
+
+.admin-comment-head {
+  display: flex;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  margin-bottom: 0.25rem;
+}
+
+.admin-comment-body {
+  font-size: 0.9rem;
+}
+
+.admin-issue-repo-note {
+  margin-top: 1rem;
+}
+
+.admin-issue-repo-note a {
+  color: #0a58ca;
+  text-decoration: none;
+}
+
+.admin-issue-repo-note a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .admin-issue-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

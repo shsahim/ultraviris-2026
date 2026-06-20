@@ -29,7 +29,11 @@ import {
 } from "@/lib/admin-db";
 import type { ColumnMeta } from "@/lib/admin-types";
 import { invalidateAll } from "@/lib/cache";
-import { createIssue } from "@/lib/github";
+import {
+  createIssue,
+  getIssueComments,
+  type IssueComment,
+} from "@/lib/github";
 
 const PROJECTS_TABLE = "active_projects";
 
@@ -342,6 +346,28 @@ export async function createIssueAction(
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Failed to open issue.",
+    };
+  }
+}
+
+export interface IssueCommentsState {
+  comments?: IssueComment[];
+  error?: string;
+}
+
+// Loads the comments for a single open issue, on demand, for the active-issues
+// widget. Requires an authenticated admin.
+export async function fetchIssueCommentsAction(
+  issueNumber: number
+): Promise<IssueCommentsState> {
+  try {
+    await requireAuth();
+    const comments = await getIssueComments(issueNumber);
+    return { comments };
+  } catch (error) {
+    return {
+      error:
+        error instanceof Error ? error.message : "Failed to load comments.",
     };
   }
 }
